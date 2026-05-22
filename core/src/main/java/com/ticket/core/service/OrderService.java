@@ -90,16 +90,14 @@ public class OrderService {
         Long userId = request.getUserId();
         List<Long> seatIds = request.getSeatIds();
 
-        // 1. 超卖兜底：检查每个座位是否已存在有效订单
-        for (Long seatId : seatIds) {
-            int count = orderItemMapper.countBySeatIdAndValidOrder(seatId);
-            if (count > 0) {
-                for (Long id : seatIds) {
-                    inventoryService.releaseSeat(sessionId, id);
-                }
-                purchaseLimitService.decrement(sessionId, userId, seatIds.size());
-                throw new BusinessException(ErrorCode.SEAT_NOT_AVAILABLE);
+        // 1. 超卖兜底：一次 IN 查询批量检查所有座位是否已被有效订单占用,替代 N 次单查
+        List<Long> occupied = orderItemMapper.selectOccupiedSeatIds(seatIds);
+        if (!occupied.isEmpty()) {
+            for (Long id : seatIds) {
+                inventoryService.releaseSeat(sessionId, id);
             }
+            purchaseLimitService.decrement(sessionId, userId, seatIds.size());
+            throw new BusinessException(ErrorCode.SEAT_NOT_AVAILABLE);
         }
 
         // 2. 从 DB 加载座位信息，校验情侣连座完整性

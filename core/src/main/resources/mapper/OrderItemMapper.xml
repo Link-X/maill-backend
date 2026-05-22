@@ -63,4 +63,16 @@
         </foreach>
     </select>
 
+    <!-- 批量查询已被有效订单占用的座位 ID（去重，仅 status IN (0,1)） -->
+    <select id="selectOccupiedSeatIds" resultType="long">
+        SELECT DISTINCT oi.seat_id
+        FROM order_item oi
+                 JOIN `order` o ON oi.order_id = o.id
+        WHERE o.status IN (0, 1)
+          AND oi.seat_id IN
+        <foreach collection="seatIds" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </select>
+
 </mapper>

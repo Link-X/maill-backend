@@ -34,6 +34,12 @@ public interface OrderItemMapper {
     int countBySeatIdAndValidOrder(Long seatId);
 
     /**
+     * 批量查询多个座位中已被有效订单占用的座位 ID（避免 N+1 单查）
+     * 返回的 seat_id 表示该座位已存在 status IN (0,1) 的订单项
+     */
+    List<Long> selectOccupiedSeatIds(@Param("seatIds") List<Long> seatIds);
+
+    /**
      * 按 (sessionId, userId) 聚合有效订单座位数，用于启动时对账 Redis 限购计数
      * 返回字段：session_id, user_id, seat_count
      */

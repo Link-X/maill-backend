@@ -21,6 +21,8 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import javax.validation.Valid;
+import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 
@@ -59,8 +61,12 @@ public class OrderController {
             throw new BusinessException(ErrorCode.PARAM_ERROR, "场次不存在");
         }
         int seatCount = req.getSeatIds().size();
+        // 限购 TTL 跟随场次结束时间,保证 key 在场次结束前不过期,防止限购被绕过
+        long ttlSeconds = session.getEndTime() != null
+                ? Math.max(0, ChronoUnit.SECONDS.between(LocalDateTime.now(), session.getEndTime()))
+                : 0;
         boolean allowed = purchaseLimitService.checkAndIncrement(
-                req.getSessionId(), userId, session.getLimitPerUser(), seatCount);
+                req.getSessionId(), userId, session.getLimitPerUser(), seatCount, ttlSeconds);
         if (!allowed) {
             throw new BusinessException(ErrorCode.EXCEED_PURCHASE_LIMIT);
         }

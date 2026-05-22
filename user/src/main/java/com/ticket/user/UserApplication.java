@@ -5,7 +5,7 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
-@SpringBootApplication(scanBasePackages = {"com.ticket.core", "com.ticket.user", "com.ticket.common"})
+@SpringBootApplication(scanBasePackages = {"com.ticket.core", "com.ticket.user", "com.ticket.common", "com.ticket.payment"})
 @MapperScan("com.ticket.core.mapper")
 @EnableScheduling
 public class UserApplication {
