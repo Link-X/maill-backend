@@ -6,8 +6,8 @@
 
 | 环境变量 | 用途 | 取值要求 | 涉及服务 |
 |----------|------|---------|----------|
-| `JWT_SECRET` | JWT 签名密钥 | 至少 32 字符强随机串（≥256 bit） | user |
-| `ADMIN_API_KEY` | 管理后台 API Key | 至少 16 字符强随机串 | admin |
+| `JWT_SECRET` | JWT 签名密钥 | 至少 32 字符强随机串（≥256 bit） | user / admin |
+| `ADMIN_INVITE_CODE` | 管理员注册邀请码 | 至少 16 字符强随机串；仅运维持有 | admin |
 | `SNOWFLAKE_WORKER_ID` | Snowflake 节点编号 | 每个 Pod / 副本唯一（0-31 整数）；**prod 配置已去掉默认值，未注入时启动失败** | user / admin / payment |
 | `DB_PASS` | MySQL 密码 | 强密码 | user / admin / payment |
 | `REDIS_PASSWORD` | Redis 密码 | 强密码 | user / admin / payment |
@@ -40,7 +40,7 @@ rate-limit:
 # 生成 JWT_SECRET（32 字节 base64，约 44 字符）
 openssl rand -base64 32
 
-# 生成 ADMIN_API_KEY（24 字节 base64，约 32 字符）
+# 生成 ADMIN_INVITE_CODE（24 字节 base64，约 32 字符）
 openssl rand -base64 24
 ```
 
@@ -64,7 +64,8 @@ services:
   admin:
     image: ticket/admin:latest
     environment:
-      ADMIN_API_KEY: ${ADMIN_API_KEY}
+      JWT_SECRET: ${JWT_SECRET}                  # 与 user 共享同一签发体系
+      ADMIN_INVITE_CODE: ${ADMIN_INVITE_CODE}
       SNOWFLAKE_WORKER_ID: 2
       DB_HOST: mysql
       DB_PASS: ${DB_PASS}
@@ -85,7 +86,7 @@ metadata:
 type: Opaque
 stringData:
   JWT_SECRET: "<openssl rand -base64 32>"
-  ADMIN_API_KEY: "<openssl rand -base64 24>"
+  ADMIN_INVITE_CODE: "<openssl rand -base64 24>"
   DB_PASS: "<db-password>"
   REDIS_PASSWORD: "<redis-password>"
 ---
@@ -110,23 +111,49 @@ spec:
                   fieldPath: metadata.labels['apps.kubernetes.io/pod-index']
 ```
 
-## 调用管理后台示例
+## 管理员注册 / 登录 / 调用
 
-所有 `/api/admin/**` 请求必须携带 `X-Admin-Token` 头：
+### 注册管理员账号
+
+需要持有 `ADMIN_INVITE_CODE`：
 
 ```bash
-curl -H "X-Admin-Token: $ADMIN_API_KEY" \
+curl -X POST http://admin.example.com/api/admin/auth/register \
+     -H 'Content-Type: application/json' \
+     -d '{
+       "username": "ops_alice",
+       "password": "<strong-password>",
+       "inviteCode": "<ADMIN_INVITE_CODE>"
+     }'
+# 返回 { "token": "...", "userId": ..., "roles": ["ADMIN"] }
+```
+
+### 登录获取 JWT
+
+```bash
+curl -X POST http://admin.example.com/api/admin/auth/login \
+     -H 'Content-Type: application/json' \
+     -d '{ "username": "ops_alice", "password": "<strong-password>" }'
+# 返回 { "token": "...", "userId": ..., "roles": ["ADMIN"] }
+```
+
+### 调用受保护接口
+
+所有 `/api/admin/**`（除 `/api/admin/auth/**`）必须携带 Bearer JWT：
+
+```bash
+curl -H "Authorization: Bearer $ADMIN_TOKEN" \
      http://admin.example.com/api/admin/monitor/dashboard?sessionId=1
 ```
 
-未带或错误的 token 返回 `401 Unauthorized`。
+未登录返回 `401`，已登录但无 ADMIN 角色返回 `403`。
 
 ## 安全检查清单
 
 部署前确认：
 
 - [ ] `JWT_SECRET` 已通过 `openssl rand` 生成，未使用 dev 默认值
-- [ ] `ADMIN_API_KEY` 已生成，未使用 `dev-admin-token-please-change-in-prod`
+- [ ] `ADMIN_INVITE_CODE` 已生成，未使用 `dev-admin-invite-please-change-in-prod`
 - [ ] 每个 Pod / 副本的 `SNOWFLAKE_WORKER_ID` 唯一（StatefulSet ordinal 或显式配置）
 - [ ] MySQL / Redis / RabbitMQ 不使用默认密码（`root123` / `guest`）
 - [ ] 反向代理后部署时已配置 `rate-limit.trusted-proxies`

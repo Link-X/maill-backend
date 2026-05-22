@@ -22,9 +22,14 @@ snowflake:
   worker-id: ${SNOWFLAKE_WORKER_ID}
   data-center-id: 2
 
+jwt:
+  # 与 user 模块共享同一签发体系,生产必须显式注入 JWT_SECRET
+  secret: ${JWT_SECRET}
+  expire-ms: ${JWT_EXPIRE_MS:7200000}
+
 admin:
-  # 生产必须显式注入 ADMIN_API_KEY 环境变量,未配置启动会报错
-  api-key: ${ADMIN_API_KEY}
+  # 生产必须显式注入 ADMIN_INVITE_CODE,用于注册管理员账号(仅运维持有)
+  invite-code: ${ADMIN_INVITE_CODE}
 
 logging:
   level:

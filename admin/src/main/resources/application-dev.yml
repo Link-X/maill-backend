@@ -21,9 +21,14 @@ snowflake:
   worker-id: 1
   data-center-id: 2
 
+jwt:
+  # 与 user 模块共享同一签发体系;dev 默认值仅供本地调试,生产必须通过 JWT_SECRET 注入
+  secret: ${JWT_SECRET:ticket-system-secret-key-must-be-at-least-256-bits!!}
+  expire-ms: ${JWT_EXPIRE_MS:7200000}
+
 admin:
-  # 管理后台 API Key,dev 环境默认值仅供本地调试;生产必须通过 ADMIN_API_KEY 环境变量覆盖
-  api-key: ${ADMIN_API_KEY:dev-admin-token-please-change-in-prod}
+  # 管理员注册邀请码,dev 默认值仅供本地调试;生产必须通过 ADMIN_INVITE_CODE 注入
+  invite-code: ${ADMIN_INVITE_CODE:dev-admin-invite-please-change-in-prod}
 
 logging:
   level:

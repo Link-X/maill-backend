@@ -2,6 +2,7 @@ package com.ticket.user.controller;
 
 import com.ticket.common.annotation.LimitType;
 import com.ticket.common.annotation.RateLimit;
+import com.ticket.common.auth.JwtTokenProvider;
 import com.ticket.common.exception.BusinessException;
 import com.ticket.common.exception.ErrorCode;
 import com.ticket.common.result.Result;
@@ -10,7 +11,6 @@ import com.ticket.core.domain.entity.User;
 import com.ticket.core.domain.entity.UserRole;
 import com.ticket.core.mapper.UserMapper;
 import com.ticket.core.mapper.UserRoleMapper;
-import com.ticket.user.config.JwtTokenProvider;
 import com.ticket.user.config.NoLogin;
 import com.ticket.user.dto.LoginRequest;
 import com.ticket.user.dto.RegisterRequest;
@@ -19,7 +19,9 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.validation.Valid;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @NoLogin
 @RestController
@@ -69,7 +71,7 @@ public class AuthController {
         role.setRole("USER");
         userRoleMapper.insert(role);
 
-        String token = jwtTokenProvider.generateToken(user.getId(), user.getUsername());
+        String token = jwtTokenProvider.generateToken(user.getId(), user.getUsername(), List.of("USER"));
         return Result.success(Map.of("token", token, "userId", user.getId()));
     }
 
@@ -82,7 +84,10 @@ public class AuthController {
         if (user == null || !passwordEncoder.matches(req.getPassword(), user.getPasswordHash())) {
             throw new BusinessException(ErrorCode.PARAM_ERROR, "用户名或密码错误");
         }
-        String token = jwtTokenProvider.generateToken(user.getId(), user.getUsername());
-        return Result.success(Map.of("token", token, "userId", user.getId()));
+        List<String> roles = userRoleMapper.selectByUserId(user.getId()).stream()
+                .map(UserRole::getRole)
+                .collect(Collectors.toList());
+        String token = jwtTokenProvider.generateToken(user.getId(), user.getUsername(), roles);
+        return Result.success(Map.of("token", token, "userId", user.getId(), "roles", roles));
     }
 }
