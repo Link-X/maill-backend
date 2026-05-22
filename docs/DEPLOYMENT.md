@@ -8,7 +8,7 @@
 |----------|------|---------|----------|
 | `JWT_SECRET` | JWT 签名密钥 | 至少 32 字符强随机串（≥256 bit） | user |
 | `ADMIN_API_KEY` | 管理后台 API Key | 至少 16 字符强随机串 | admin |
-| `SNOWFLAKE_WORKER_ID` | Snowflake 节点编号 | 每个 Pod / 副本唯一（0-31 整数） | user / admin / payment |
+| `SNOWFLAKE_WORKER_ID` | Snowflake 节点编号 | 每个 Pod / 副本唯一（0-31 整数）；**prod 配置已去掉默认值，未注入时启动失败** | user / admin / payment |
 | `DB_PASS` | MySQL 密码 | 强密码 | user / admin / payment |
 | `REDIS_PASSWORD` | Redis 密码 | 强密码 | user / admin / payment |
 

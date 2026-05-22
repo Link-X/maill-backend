@@ -1,6 +1,5 @@
 package com.ticket.core.mq.consumer;
 
-import com.ticket.core.mapper.OrderItemMapper;
 import com.ticket.core.mapper.OrderMapper;
 import com.ticket.core.mapper.PaymentMapper;
 import com.ticket.core.mapper.SeatMapper;
@@ -10,6 +9,7 @@ import com.ticket.core.mq.event.RefundEvent;
 import com.ticket.core.service.PurchaseLimitService;
 import com.ticket.core.service.SeatInventoryService;
 import com.ticket.core.domain.entity.Order;
+import com.ticket.core.domain.entity.Ticket;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -26,7 +26,6 @@ public class RefundConsumer {
     private static final long IDEMPOTENT_TTL_HOURS = 24;
 
     private final OrderMapper orderMapper;
-    private final OrderItemMapper orderItemMapper;
     private final PaymentMapper paymentMapper;
     private final SeatMapper seatMapper;
     private final TicketMapper ticketMapper;
@@ -35,7 +34,6 @@ public class RefundConsumer {
     private final StringRedisTemplate redisTemplate;
 
     public RefundConsumer(OrderMapper orderMapper,
-                          OrderItemMapper orderItemMapper,
                           PaymentMapper paymentMapper,
                           SeatMapper seatMapper,
                           TicketMapper ticketMapper,
@@ -43,7 +41,6 @@ public class RefundConsumer {
                           PurchaseLimitService purchaseLimitService,
                           StringRedisTemplate redisTemplate) {
         this.orderMapper = orderMapper;
-        this.orderItemMapper = orderItemMapper;
         this.paymentMapper = paymentMapper;
         this.seatMapper = seatMapper;
         this.ticketMapper = ticketMapper;
@@ -91,9 +88,12 @@ public class RefundConsumer {
             // 5. 作废退款座位对应的票券（已核销票券保持原状）
             ticketMapper.invalidateBySeatIds(orderId, refundSeatIds);
 
-            // 6. 判断全退(4)还是部分退款(5)
-            int totalItems = orderItemMapper.selectByOrderId(orderId).size();
-            int finalStatus = (refundSeatIds.size() == totalItems) ? 4 : 5;
+            // 6. 判断全退(4)还是部分退款(5):基于"剩余可退票券数",支持多次部分退款累积到全退
+            //    ticket.status: 0=未使用(可退), 1=已使用(不参与), 2=已退款
+            //    invalidateBySeatIds 已把本次退款票券标记为 2,剩余 status=0 即可继续退款
+            List<Ticket> tickets = ticketMapper.selectByOrderId(orderId);
+            long remainingRefundable = tickets.stream().filter(t -> t.getStatus() == 0).count();
+            int finalStatus = remainingRefundable == 0 ? 4 : 5;
             orderMapper.updateStatusFrom(orderId, 3, finalStatus);
 
             log.info("退款完成，orderId={}，退款座位={}，最终状态={}", orderId, refundSeatIds, finalStatus);

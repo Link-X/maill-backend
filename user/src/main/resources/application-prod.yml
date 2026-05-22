@@ -18,7 +18,8 @@ spring:
       password: ${REDIS_PASSWORD:}
 
 snowflake:
-  worker-id: ${SNOWFLAKE_WORKER_ID:1}
+  # 必须通过 SNOWFLAKE_WORKER_ID 环境变量注入,每副本唯一(0-31),未配置启动会报错
+  worker-id: ${SNOWFLAKE_WORKER_ID}
   data-center-id: 1
 
 jwt:

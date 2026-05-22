@@ -293,18 +293,27 @@ public class OrderService {
         if (affected == 0) {
             return;
         }
-        // 立即将可退座位恢复到 Redis 可售集合，座位图实时生效
-        for (Long seatId : refundSeatIds) {
-            inventoryService.releaseSeat(order.getSessionId(), seatId);
-        }
+
+        // 顺序：DB → MQ → Redis,确保任一步失败时不会出现"Redis 座位已可售但 DB 仍持有"的窗口
+        // 1. 先发 MQ,失败立即回滚 DB,Redis 未动,状态完全一致
         try {
             refundProducer.sendRefund(order.getId(), refundSeatIds);
         } catch (Exception e) {
-            // MQ 发送失败：回滚 DB 状态（3 → 原状态），防止订单卡死在"退款中"
-            // Redis 座位已释放，此处不再回锁（5 分钟 TTL 后自动清理，用户可重新发起退款）
             log.error("退款 MQ 发送失败，回滚订单状态，orderId={}", order.getId(), e);
             orderMapper.updateStatusFrom(order.getId(), 3, order.getStatus());
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "退款系统繁忙，请稍后重试");
+        }
+
+        // 2. MQ 成功后再释放 Redis 座位。即使本步失败,RefundConsumer 会通过 releaseSeat 兜底,
+        //    保证最终一致性;不会出现"座位可售但订单未进入退款流程"的情况。
+        try {
+            for (Long seatId : refundSeatIds) {
+                inventoryService.releaseSeat(order.getSessionId(), seatId);
+            }
+        } catch (Exception e) {
+            // Redis 失败仅记录日志,由 RefundConsumer 兜底释放;此处不向上抛,避免误导用户重试
+            log.error("退款座位释放失败,等待消费者兜底,orderId={},seatIds={}",
+                    order.getId(), refundSeatIds, e);
         }
     }
 
