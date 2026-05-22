@@ -12,13 +12,18 @@ import com.ticket.core.service.SeatInventoryService;
 import com.ticket.core.domain.entity.Order;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @Component
 public class RefundConsumer {
+
+    /** 退款幂等键 TTL（小时）：覆盖 MQ 最长重投窗口,远大于业务处理耗时 */
+    private static final long IDEMPOTENT_TTL_HOURS = 24;
 
     private final OrderMapper orderMapper;
     private final OrderItemMapper orderItemMapper;
@@ -27,6 +32,7 @@ public class RefundConsumer {
     private final TicketMapper ticketMapper;
     private final SeatInventoryService inventoryService;
     private final PurchaseLimitService purchaseLimitService;
+    private final StringRedisTemplate redisTemplate;
 
     public RefundConsumer(OrderMapper orderMapper,
                           OrderItemMapper orderItemMapper,
@@ -34,7 +40,8 @@ public class RefundConsumer {
                           SeatMapper seatMapper,
                           TicketMapper ticketMapper,
                           SeatInventoryService inventoryService,
-                          PurchaseLimitService purchaseLimitService) {
+                          PurchaseLimitService purchaseLimitService,
+                          StringRedisTemplate redisTemplate) {
         this.orderMapper = orderMapper;
         this.orderItemMapper = orderItemMapper;
         this.paymentMapper = paymentMapper;
@@ -42,12 +49,21 @@ public class RefundConsumer {
         this.ticketMapper = ticketMapper;
         this.inventoryService = inventoryService;
         this.purchaseLimitService = purchaseLimitService;
+        this.redisTemplate = redisTemplate;
     }
 
     @RabbitListener(queues = RabbitMQConfig.REFUND_QUEUE)
     public void handleRefund(RefundEvent event) {
         Long orderId = event.getOrderId();
         List<Long> refundSeatIds = event.getRefundSeatIds();
+        // 幂等键：orderId + 本次退款座位集合，部分退款多次触发时 key 不同;同一退款重试时 key 相同
+        String idempotentKey = buildIdempotentKey(orderId, refundSeatIds);
+        Boolean firstTime = redisTemplate.opsForValue()
+                .setIfAbsent(idempotentKey, "1", IDEMPOTENT_TTL_HOURS, TimeUnit.HOURS);
+        if (!Boolean.TRUE.equals(firstTime)) {
+            log.warn("退款消息重复消费,直接跳过。orderId={},seatIds={}", orderId, refundSeatIds);
+            return;
+        }
         log.info("处理退款，orderId={}，退款座位数={}", orderId, refundSeatIds.size());
         try {
             Order order = orderMapper.selectById(orderId);
@@ -82,8 +98,17 @@ public class RefundConsumer {
 
             log.info("退款完成，orderId={}，退款座位={}，最终状态={}", orderId, refundSeatIds, finalStatus);
         } catch (Exception e) {
+            // 业务失败时清除幂等键,允许 MQ 重试时重新处理
+            redisTemplate.delete(idempotentKey);
             log.error("退款处理失败，orderId={}，原因：{}", orderId, e.getMessage(), e);
             throw e;
         }
+    }
+
+    private String buildIdempotentKey(Long orderId, List<Long> refundSeatIds) {
+        // 复制后排序,避免不同顺序的同一批座位被识别为两次退款
+        List<Long> sorted = new java.util.ArrayList<>(refundSeatIds);
+        java.util.Collections.sort(sorted);
+        return "refund:idempotent:" + orderId + ":" + sorted.hashCode();
     }
 }

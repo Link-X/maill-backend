@@ -4,6 +4,7 @@ import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
@@ -12,16 +13,24 @@ import java.util.Date;
 
 /**
  * JWT 工具类：生成 / 解析 / 校验 Token
+ *
+ * 密钥与过期时间均由配置注入，生产环境必须通过环境变量覆盖默认值
  */
 @Component
 public class JwtTokenProvider {
 
-    // 生产环境应从配置文件读取，此处硬编码满足 HMAC-SHA 256位最小长度要求
-    private static final String SECRET = "ticket-system-secret-key-must-be-at-least-256-bits!!";
-    private static final long EXPIRE_MS = 30L * 24 * 60 * 60 * 1000; // 30 天
+    private final SecretKey key;
+    private final long expireMs;
 
-
-    private final SecretKey key = Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8));
+    public JwtTokenProvider(
+            @Value("${jwt.secret}") String secret,
+            @Value("${jwt.expire-ms:7200000}") long expireMs) {
+        if (secret == null || secret.getBytes(StandardCharsets.UTF_8).length < 32) {
+            throw new IllegalStateException("jwt.secret 未配置或长度不足 256 位，启动失败");
+        }
+        this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
+        this.expireMs = expireMs;
+    }
 
     public String generateToken(Long userId, String username) {
         Date now = new Date();
@@ -29,7 +38,7 @@ public class JwtTokenProvider {
                 .subject(String.valueOf(userId))
                 .claim("username", username)
                 .issuedAt(now)
-                .expiration(new Date(now.getTime() + EXPIRE_MS))
+                .expiration(new Date(now.getTime() + expireMs))
                 .signWith(key)
                 .compact();
     }

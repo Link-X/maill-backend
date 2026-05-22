@@ -27,6 +27,12 @@ snowflake:
   worker-id: 1
   data-center-id: 1
 
+jwt:
+  # 仅限 dev 环境默认值；生产必须通过 JWT_SECRET 环境变量覆盖
+  secret: ${JWT_SECRET:ticket-system-secret-key-must-be-at-least-256-bits!!}
+  # token 过期时间(ms),默认 2 小时
+  expire-ms: ${JWT_EXPIRE_MS:7200000}
+
 logging:
   level:
     com.ticket: DEBUG
