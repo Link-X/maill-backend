@@ -186,6 +186,9 @@ public class OrderService {
     /**
      * 取消订单
      *
+     * Redis 操作(releaseSeat / decrement)放到 afterCommit 回调,
+     * 避免 DB 事务回滚但 Redis 已修改导致计数错乱。
+     *
      * @param orderId 订单 ID
      */
     @Transactional(rollbackFor = Exception.class)
@@ -198,21 +201,27 @@ public class OrderService {
             return;
         }
 
-        // 3. 更新订单状态为已取消（2）；利用 AND status=0 的条件实现乐观锁
-        //    若受影响行数为 0，说明其他线程已先完成取消，直接返回避免重复操作
+        // 3. 更新订单状态为已取消（2）;利用 AND status=0 的条件实现乐观锁
         int affected = orderMapper.updateStatus(orderId, 2);
         if (affected == 0) {
             return;  // 已被其他线程取消
         }
 
-        // 4. 查询订单项并释放座位锁
+        // 4. 查询订单项(事务内,确保读到本次取消订单的数据)
         List<OrderItem> items = orderItemMapper.selectByOrderId(orderId);
-        for (OrderItem item : items) {
-            inventoryService.releaseSeat(order.getSessionId(), item.getSeatId());
-        }
+        Long sessionId = order.getSessionId();
+        Long userId = order.getUserId();
 
-        // 5. 回滚限购计数（按实际座位数释放）
-        purchaseLimitService.decrement(order.getSessionId(), order.getUserId(), items.size());
+        // 5. Redis 操作移到事务提交后,DB 回滚时不会污染 Redis 状态
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                for (OrderItem item : items) {
+                    inventoryService.releaseSeat(sessionId, item.getSeatId());
+                }
+                purchaseLimitService.decrement(sessionId, userId, items.size());
+            }
+        });
     }
 
     /**

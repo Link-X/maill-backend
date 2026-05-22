@@ -49,6 +49,14 @@ public interface OrderMapper {
                                     @Param("limit") Integer limit);
 
     /**
+     * 查询长时间停留在指定状态的订单(update_time 早于 updateBefore),
+     * 用于退款补偿:扫描卡在退款中(status=3)的"僵尸"订单
+     */
+    List<Order> selectStuckOrders(@Param("status") Integer status,
+                                  @Param("updateBefore") LocalDateTime updateBefore,
+                                  @Param("limit") Integer limit);
+
+    /**
      * 更新订单状态和支付时间
      */
     int updateStatusAndPayTime(@Param("id") Long id,

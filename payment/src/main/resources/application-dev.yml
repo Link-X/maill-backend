@@ -11,10 +11,27 @@ spring:
     redis:
       host: localhost
       port: 6379
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
+    listener:
+      simple:
+        retry:
+          enabled: true
+          max-attempts: 3
+          initial-interval: 2000ms
 
 snowflake:
   worker-id: 1
   data-center-id: 3
+
+jwt:
+  # payment 不签发 token,但 JwtTokenProvider 在 common 中是全局 Bean,启动时需配置;
+  # 与 user/admin 共享同一 secret,保证未来跨服务校验 token 一致
+  secret: ${JWT_SECRET:ticket-system-secret-key-must-be-at-least-256-bits!!}
+  expire-ms: ${JWT_EXPIRE_MS:7200000}
 
 logging:
   level:

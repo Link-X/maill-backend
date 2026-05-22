@@ -31,6 +31,10 @@ admin:
   # 生产必须显式注入 ADMIN_INVITE_CODE,用于注册管理员账号(仅运维持有)
   invite-code: ${ADMIN_INVITE_CODE}
 
+cors:
+  # 允许跨域的前端 origin 列表(逗号分隔),生产环境必须显式配置,禁止 *
+  allowed-origins: ${CORS_ALLOWED_ORIGINS}
+
 logging:
   level:
     root: WARN

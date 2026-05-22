@@ -24,9 +24,12 @@ import java.util.List;
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtTokenProvider jwtTokenProvider;
+    private final TokenBlacklistService tokenBlacklistService;
 
-    public JwtAuthenticationFilter(JwtTokenProvider jwtTokenProvider) {
+    public JwtAuthenticationFilter(JwtTokenProvider jwtTokenProvider,
+                                   TokenBlacklistService tokenBlacklistService) {
         this.jwtTokenProvider = jwtTokenProvider;
+        this.tokenBlacklistService = tokenBlacklistService;
     }
 
     @Override
@@ -35,6 +38,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                                     FilterChain filterChain) throws ServletException, IOException {
         String token = resolveToken(request);
         if (StringUtils.hasText(token) && jwtTokenProvider.validateToken(token)) {
+            String jti = jwtTokenProvider.getJtiFromToken(token);
+            if (tokenBlacklistService.isRevoked(jti)) {
+                // 已登出/吊销:不写入 SecurityContext,后续拦截器会按未登录处理
+                filterChain.doFilter(request, response);
+                return;
+            }
             Long userId = jwtTokenProvider.getUserIdFromToken(token);
             List<String> roles = jwtTokenProvider.getRolesFromToken(token);
             List<GrantedAuthority> authorities = new ArrayList<>();

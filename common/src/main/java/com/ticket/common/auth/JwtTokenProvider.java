@@ -12,6 +12,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.Date;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * JWT 工具类:生成 / 解析 / 校验 Token,user 与 admin 模块共享一套签发体系
@@ -45,6 +46,7 @@ public class JwtTokenProvider {
     public String generateToken(Long userId, String username, List<String> roles) {
         Date now = new Date();
         return Jwts.builder()
+                .id(UUID.randomUUID().toString())                       // JTI:用于登出黑名单
                 .subject(String.valueOf(userId))
                 .claim(CLAIM_USERNAME, username)
                 .claim(CLAIM_ROLES, roles != null ? roles : Collections.emptyList())
@@ -65,6 +67,16 @@ public class JwtTokenProvider {
             return (List<String>) raw;
         }
         return Collections.emptyList();
+    }
+
+    /** 获取 JTI(token 唯一标识),用于黑名单查询 */
+    public String getJtiFromToken(String token) {
+        return parseClaims(token).getId();
+    }
+
+    /** 获取 token 过期时间戳(毫秒),用于设置黑名单 Redis key 的 TTL */
+    public long getExpirationMs(String token) {
+        return parseClaims(token).getExpiration().getTime();
     }
 
     public boolean validateToken(String token) {

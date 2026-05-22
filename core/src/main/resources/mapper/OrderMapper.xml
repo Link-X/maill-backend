@@ -61,6 +61,16 @@
         LIMIT #{limit}
     </select>
 
+    <!-- 查询长时间停留在指定状态的订单(update_time 早于 updateBefore),用于卡死状态补偿 -->
+    <select id="selectStuckOrders" resultMap="OrderResultMap">
+        SELECT id, order_no, user_id, session_id, total_amount, status, pay_time, expire_time, create_time, update_time
+        FROM `order`
+        WHERE status = #{status}
+          AND update_time &lt; #{updateBefore}
+        ORDER BY update_time ASC
+        LIMIT #{limit}
+    </select>
+
     <!-- 更新订单状态和支付时间（乐观锁：只更新待支付订单，防并发取消后仍被支付） -->
     <update id="updateStatusAndPayTime">
         UPDATE `order`

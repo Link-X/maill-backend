@@ -130,7 +130,7 @@ public class OrderController {
     }
 
     @PostMapping("/list")
-    public Result<?> list(@RequestBody OrderListRequest req) {
+    public Result<?> list(@Valid @RequestBody OrderListRequest req) {
         Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
         List<OrderStatusResponse> orders = orderService.getUserOrders(
                 userId, req.getPage(), req.getSize(), req.getStatus(), req.getStartTime(), req.getEndTime());
