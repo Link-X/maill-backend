@@ -61,6 +61,12 @@ public class OrderStatusResponse {
     private String showName;
     /** 演出场馆 */
     private String showVenue;
+    /** 演出城市 code（GB/T 行政区划代码） */
+    private String showCityCode;
+    /** 演出城市名（前端无需再查 city 表） */
+    private String showCityName;
+    /** 演出详细地址 */
+    private String showAddress;
     /** 场次名称 */
     private String sessionName;
     /** 场次开始时间 */

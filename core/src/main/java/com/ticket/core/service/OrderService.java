@@ -8,9 +8,11 @@ import com.ticket.core.domain.dto.OrderStatusResponse;
 import com.ticket.core.domain.entity.Order;
 import com.ticket.core.domain.entity.OrderItem;
 import com.ticket.core.domain.entity.Seat;
+import com.ticket.core.domain.entity.City;
 import com.ticket.core.domain.entity.Show;
 import com.ticket.core.domain.entity.ShowSession;
 import com.ticket.core.domain.entity.Ticket;
+import com.ticket.core.mapper.CityMapper;
 import com.ticket.core.mapper.OrderItemMapper;
 import com.ticket.core.mapper.OrderMapper;
 import com.ticket.core.mapper.SeatMapper;
@@ -53,6 +55,7 @@ public class OrderService {
     private final RefundProducer refundProducer;
     private final TicketMapper ticketMapper;
     private final SnowflakeIdGenerator snowflake;
+    private final CityMapper cityMapper;
 
     public OrderService(OrderMapper orderMapper,
                         OrderItemMapper orderItemMapper,
@@ -64,7 +67,8 @@ public class OrderService {
                         OrderTimeoutProducer orderTimeoutProducer,
                         RefundProducer refundProducer,
                         TicketMapper ticketMapper,
-                        SnowflakeIdGenerator snowflake) {
+                        SnowflakeIdGenerator snowflake,
+                        CityMapper cityMapper) {
         this.orderMapper = orderMapper;
         this.orderItemMapper = orderItemMapper;
         this.inventoryService = inventoryService;
@@ -76,6 +80,7 @@ public class OrderService {
         this.refundProducer = refundProducer;
         this.ticketMapper = ticketMapper;
         this.snowflake = snowflake;
+        this.cityMapper = cityMapper;
     }
 
     /**
@@ -380,11 +385,21 @@ public class OrderService {
         Map<Long, Show> showsById = showMapper.selectByIds(showIds)
                 .stream().collect(Collectors.toMap(Show::getId, s -> s));
 
+        // 批量预取 city，订单详情用 cityName。避免按 show 单查
+        List<String> cityCodes = showsById.values().stream()
+                .map(Show::getCityCode)
+                .filter(c -> c != null && !c.isEmpty())
+                .distinct()
+                .collect(Collectors.toList());
+        Map<String, String> cityNameByCode = cityCodes.isEmpty() ? Map.of()
+                : cityMapper.selectByCodes(cityCodes).stream()
+                    .collect(Collectors.toMap(City::getCode, City::getName));
+
         Map<Long, List<Ticket>> ticketsByOrderId = ticketMapper.selectByOrderIds(orderIds)
                 .stream().collect(Collectors.groupingBy(Ticket::getOrderId));
 
         return orders.stream()
-                .map(o -> buildStatusResponse(o, itemsByOrderId, sessionsById, showsById, ticketsByOrderId))
+                .map(o -> buildStatusResponse(o, itemsByOrderId, sessionsById, showsById, ticketsByOrderId, cityNameByCode))
                 .collect(Collectors.toList());
     }
 
@@ -403,7 +418,8 @@ public class OrderService {
             Map<Long, List<OrderItem>> itemsByOrderId,
             Map<Long, ShowSession> sessionsById,
             Map<Long, Show> showsById,
-            Map<Long, List<Ticket>> ticketsByOrderId) {
+            Map<Long, List<Ticket>> ticketsByOrderId,
+            Map<String, String> cityNameByCode) {
 
         List<OrderItem> items = itemsByOrderId.getOrDefault(order.getId(), List.of());
         ShowSession session = sessionsById.get(order.getSessionId());
@@ -422,6 +438,11 @@ public class OrderService {
         if (show != null) {
             resp.setShowName(show.getName());
             resp.setShowVenue(show.getVenue());
+            resp.setShowCityCode(show.getCityCode());
+            resp.setShowAddress(show.getAddress());
+            if (show.getCityCode() != null) {
+                resp.setShowCityName(cityNameByCode.get(show.getCityCode()));
+            }
         }
         if (session != null) {
             resp.setSessionName(session.getName());
@@ -443,6 +464,8 @@ public class OrderService {
         List<OrderItem> items = orderItemMapper.selectByOrderId(order.getId());
         ShowSession session = showSessionMapper.selectById(order.getSessionId());
         Show show = session != null ? showMapper.selectById(session.getShowId()) : null;
+        City city = (show != null && show.getCityCode() != null)
+                ? cityMapper.selectByCode(show.getCityCode()) : null;
 
         OrderStatusResponse resp = new OrderStatusResponse();
         resp.setOrderId(order.getId());
@@ -456,6 +479,11 @@ public class OrderService {
         if (show != null) {
             resp.setShowName(show.getName());
             resp.setShowVenue(show.getVenue());
+            resp.setShowCityCode(show.getCityCode());
+            resp.setShowAddress(show.getAddress());
+            if (city != null) {
+                resp.setShowCityName(city.getName());
+            }
         }
         if (session != null) {
             resp.setSessionName(session.getName());

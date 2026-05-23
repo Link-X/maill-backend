@@ -39,11 +39,13 @@ public interface ShowMapper {
     List<Show> selectByStatus(Integer status);
 
     /**
-     * 带条件分页查询（name/categoryId/venue 筛选；name/venue 前缀模糊匹配，categoryId 精确）
-     * 返回 ShowVO（含 categoryName，LEFT JOIN category）
+     * 带条件分页查询（name/categoryId/cityCode/venue 筛选；
+     * name/venue 前缀模糊匹配，categoryId/cityCode 精确）
+     * 返回 ShowVO（含 categoryName / cityName / address，LEFT JOIN category & city）
      */
     List<ShowVO> selectVOByCondition(@Param("name") String name,
                                      @Param("categoryId") Long categoryId,
+                                     @Param("cityCode") String cityCode,
                                      @Param("venue") String venue,
                                      @Param("status") Integer status,
                                      @Param("offset") int offset,
@@ -54,6 +56,7 @@ public interface ShowMapper {
      */
     int countByCondition(@Param("name") String name,
                          @Param("categoryId") Long categoryId,
+                         @Param("cityCode") String cityCode,
                          @Param("venue") String venue,
                          @Param("status") Integer status);
 

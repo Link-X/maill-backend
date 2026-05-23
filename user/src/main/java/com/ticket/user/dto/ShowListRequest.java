@@ -20,5 +20,6 @@ public class ShowListRequest {
 
     private String name;
     private Long categoryId;
+    private String cityCode;
     private String venue;
 }

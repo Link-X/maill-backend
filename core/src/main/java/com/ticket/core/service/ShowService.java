@@ -1,11 +1,13 @@
 package com.ticket.core.service;
 
+import com.ticket.core.domain.entity.City;
 import com.ticket.core.domain.entity.Room;
 import com.ticket.core.domain.entity.Seat;
 import com.ticket.core.domain.entity.SeatArea;
 import com.ticket.core.domain.entity.Show;
 import com.ticket.core.domain.entity.ShowSession;
 import com.ticket.core.domain.vo.ShowVO;
+import com.ticket.core.mapper.CityMapper;
 import com.ticket.core.domain.vo.AreaPriceVO;
 import com.ticket.core.domain.vo.SeatColVO;
 import com.ticket.core.domain.vo.SeatRowVO;
@@ -36,6 +38,7 @@ public class ShowService {
     private final SeatAreaMapper seatAreaMapper;
     private final SeatInventoryService inventoryService;
     private final RoomService roomService;
+    private final CityMapper cityMapper;
 
     /**
      * 构造器注入
@@ -45,13 +48,15 @@ public class ShowService {
                        SeatMapper seatMapper,
                        SeatAreaMapper seatAreaMapper,
                        SeatInventoryService inventoryService,
-                       RoomService roomService) {
+                       RoomService roomService,
+                       CityMapper cityMapper) {
         this.showMapper = showMapper;
         this.showSessionMapper = showSessionMapper;
         this.seatMapper = seatMapper;
         this.seatAreaMapper = seatAreaMapper;
         this.inventoryService = inventoryService;
         this.roomService = roomService;
+        this.cityMapper = cityMapper;
     }
 
     /**
@@ -93,15 +98,16 @@ public class ShowService {
     }
 
     /**
-     * 用户端分页列表（仅 status=1，带 categoryName）
+     * 用户端分页列表（仅 status=1，带 categoryName / cityName）
      */
-    public List<ShowVO> listShowsPaged(String name, Long categoryId, String venue, int page, int size) {
+    public List<ShowVO> listShowsPaged(String name, Long categoryId, String cityCode,
+                                       String venue, int page, int size) {
         int offset = (page - 1) * size;
-        return showMapper.selectVOByCondition(name, categoryId, venue, 1, offset, size);
+        return showMapper.selectVOByCondition(name, categoryId, cityCode, venue, 1, offset, size);
     }
 
-    public int countShows(String name, Long categoryId, String venue) {
-        return showMapper.countByCondition(name, categoryId, venue, 1);
+    public int countShows(String name, Long categoryId, String cityCode, String venue) {
+        return showMapper.countByCondition(name, categoryId, cityCode, venue, 1);
     }
 
     /**
@@ -279,6 +285,25 @@ public class ShowService {
         response.setSession(session);
         response.setAreaPriceList(areaPriceList);
         response.setSeatSection(seatSection);
+
+        // 填充演出与城市信息，前端无需再调 /api/show/{id}
+        if (session.getShowId() != null) {
+            Show show = showMapper.selectById(session.getShowId());
+            if (show != null) {
+                response.setShowId(show.getId());
+                response.setShowName(show.getName());
+                response.setShowVenue(show.getVenue());
+                response.setShowAddress(show.getAddress());
+                response.setShowCityCode(show.getCityCode());
+                response.setShowPosterUrl(show.getPosterUrl());
+                if (show.getCityCode() != null) {
+                    City city = cityMapper.selectByCode(show.getCityCode());
+                    if (city != null) {
+                        response.setShowCityName(city.getName());
+                    }
+                }
+            }
+        }
         return response;
     }
 }

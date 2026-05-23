@@ -13,6 +13,9 @@ public class ShowVO {
     private String description;
     private Long categoryId;
     private String categoryName;
+    private String cityCode;
+    private String cityName;
+    private String address;
     private String posterUrl;
     private String venue;
     private Integer status;

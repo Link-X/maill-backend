@@ -21,8 +21,10 @@ public class ShowController {
 
     @PostMapping("/list")
     public Result<?> listShows(@RequestBody ShowListRequest req) {
-        var list = showService.listShowsPaged(req.getName(), req.getCategoryId(), req.getVenue(), req.getPage(), req.getSize());
-        var total = showService.countShows(req.getName(), req.getCategoryId(), req.getVenue());
+        var list = showService.listShowsPaged(req.getName(), req.getCategoryId(), req.getCityCode(),
+                req.getVenue(), req.getPage(), req.getSize());
+        var total = showService.countShows(req.getName(), req.getCategoryId(), req.getCityCode(),
+                req.getVenue());
         return Result.success(Map.of("total", total, "list", list));
     }
 

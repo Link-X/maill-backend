@@ -43,6 +43,20 @@ CREATE TABLE IF NOT EXISTS category (
     KEY idx_status_sort (status, sort) COMMENT '用户端列表按 status=1 过滤后按 sort 排序'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='演出分类表';
 
+-- 3.5 城市表（GB/T 行政区划代码，仅一级行政区与主要地级市；只读 seed，不提供后台 CRUD）
+CREATE TABLE IF NOT EXISTS city (
+    id          BIGINT       NOT NULL AUTO_INCREMENT,
+    code        VARCHAR(10)  NOT NULL COMMENT 'GB/T 行政区划代码',
+    name        VARCHAR(64)  NOT NULL COMMENT '城市名',
+    sort        INT          NOT NULL DEFAULT 0 COMMENT '排序，小靠前',
+    status      TINYINT      NOT NULL DEFAULT 1 COMMENT '0=禁用 1=启用',
+    create_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_code (code),
+    KEY idx_status_sort (status, sort)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='城市表';
+
 -- 4. 演出表
 -- `show` 是 MySQL 保留字，必须使用反引号
 -- 索引设计:
@@ -54,8 +68,10 @@ CREATE TABLE IF NOT EXISTS `show` (
     name        VARCHAR(128) NOT NULL COMMENT '演出名称',
     description TEXT                  COMMENT '演出描述',
     category_id BIGINT                DEFAULT NULL COMMENT '关联 category.id',
+    city_code   VARCHAR(10)           DEFAULT NULL COMMENT '关联 city.code (GB/T 行政区划代码)',
+    address     VARCHAR(255)          DEFAULT NULL COMMENT '详细地址',
     poster_url  VARCHAR(512)          DEFAULT NULL COMMENT '海报URL',
-    venue       VARCHAR(256)          DEFAULT NULL COMMENT '演出场馆',
+    venue       VARCHAR(256)          DEFAULT NULL COMMENT '演出场馆名',
     status      INT          NOT NULL DEFAULT 0 COMMENT '状态: 0=草稿, 1=已上架, 2=已下架',
     create_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     update_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -63,7 +79,8 @@ CREATE TABLE IF NOT EXISTS `show` (
     KEY idx_status_create_time (status, create_time) COMMENT '用于演出列表按状态分页查询，避免 filesort',
     KEY idx_name        (name)        COMMENT '搜索: name LIKE xxx%',
     KEY idx_venue       (venue)       COMMENT '搜索: venue LIKE xxx%',
-    KEY idx_category_id (category_id) COMMENT '按分类筛选'
+    KEY idx_category_id (category_id) COMMENT '按分类筛选',
+    KEY idx_city_code   (city_code)   COMMENT '按城市筛选'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='演出表';
 
 -- 4. 演出场次表
@@ -224,6 +241,43 @@ CREATE TABLE IF NOT EXISTS room_area (
     UNIQUE KEY uk_room_area (room_id, area_id),
     KEY idx_room_id (room_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='场地默认价格区域表';
+
+-- ============================================================
+-- 初始化数据：城市 seed（30 个主要城市，GB/T 行政区划代码）
+-- 直辖市使用一级代码（如 110000），地级市使用二级代码（如 440100 广州）。
+-- 上线后只读，不通过后台 CRUD 修改。
+-- ============================================================
+INSERT INTO city (code, name, sort, status) VALUES
+    ('110000', '北京',     1,  1),
+    ('310000', '上海',     2,  1),
+    ('440100', '广州',     3,  1),
+    ('440300', '深圳',     4,  1),
+    ('330100', '杭州',     5,  1),
+    ('320100', '南京',     6,  1),
+    ('510100', '成都',     7,  1),
+    ('420100', '武汉',     8,  1),
+    ('610100', '西安',     9,  1),
+    ('120000', '天津',     10, 1),
+    ('500000', '重庆',     11, 1),
+    ('320500', '苏州',     12, 1),
+    ('430100', '长沙',     13, 1),
+    ('370200', '青岛',     14, 1),
+    ('410100', '郑州',     15, 1),
+    ('210200', '大连',     16, 1),
+    ('330200', '宁波',     17, 1),
+    ('350200', '厦门',     18, 1),
+    ('350100', '福州',     19, 1),
+    ('370100', '济南',     20, 1),
+    ('340100', '合肥',     21, 1),
+    ('320200', '无锡',     22, 1),
+    ('440600', '佛山',     23, 1),
+    ('441900', '东莞',     24, 1),
+    ('530100', '昆明',     25, 1),
+    ('210100', '沈阳',     26, 1),
+    ('230100', '哈尔滨',   27, 1),
+    ('220100', '长春',     28, 1),
+    ('360100', '南昌',     29, 1),
+    ('520100', '贵阳',     30, 1);
 
 -- ============================================================
 -- 存量数据库迁移（仅首次升级时执行，新建库忽略）
