@@ -191,12 +191,30 @@ GET {{adminHost}}/api/admin/category/list?status=1&keyword=脱口
 # DELETE {{adminHost}}/api/admin/category/1
 
 ###
+# ──────────── Admin 城市（只读，seed 自 schema.sql） ────────────
+
+###
+# Step 5.10: 管理端城市列表（创建演出时下拉选用）
+# 支持 status / keyword 前缀筛选；30 个主要城市按 sort 排序
+# 预期: {"code":200,"data":[{"id":1,"code":"110000","name":"北京","sort":1,"status":1,...}]}
+GET {{adminHost}}/api/admin/city/list
+
+###
+# Step 5.11: 用户端城市列表（首页 tabs）
+# 仅返回 status=1，按 sort 排序
+GET {{userHost}}/api/city/list
+
+###
 # ──────────── Admin 演出/场次管理 ────────────
 
 ###
 # Step 6: 创建演出 (Admin) → 复制 data.id 到 @showId
-# 注意：现在使用 categoryId（关联 category 表 id），不再使用 category 字符串
-# 预期: {"code":200,"data":{"id":1,"name":"大冬天脱口秀","categoryId":1,...}}
+# 字段说明:
+#   - categoryId: 关联 category.id（不再使用 category 字符串）
+#   - cityCode:   关联 city.code，GB/T 行政区划代码（如 110000=北京）
+#   - address:    详细地址
+#   - extend:     扩展字段 JSON 串，约定见前端文档，后端原样存储不参与 WHERE/索引
+# 预期: {"code":200,"data":{"id":1,"name":"大冬天脱口秀","categoryId":1,"cityCode":"110000",...}}
 POST {{adminHost}}/api/admin/show/create
 Content-Type: application/json
 
@@ -204,8 +222,11 @@ Content-Type: application/json
   "name": "大冬天脱口秀",
   "description": "3028 年巡回脱口秀",
   "categoryId": {{categoryId}},
-  "venue": "乡下体育场",
-  "posterUrl": "https://example.com/poster.jpg"
+  "cityCode": "110000",
+  "address": "朝阳区奥林匹克公园南路 1 号",
+  "venue": "国家体育场（鸟巢）",
+  "posterUrl": "https://example.com/poster.jpg",
+  "extend": "{\"duration\":120,\"ageLimit\":\"6+\",\"refundRule\":\"开演前24小时可退\"}"
 }
 
 ###
@@ -219,8 +240,11 @@ Content-Type: application/json
   "name": "大冬天脱口秀（已更新）",
   "description": "2036 年巡回脱口秀",
   "categoryId": {{categoryId}},
-  "venue": "乡下体育场",
-  "posterUrl": "https://example.com/poster.jpg"
+  "cityCode": "110000",
+  "address": "朝阳区奥林匹克公园南路 1 号",
+  "venue": "国家体育场（鸟巢）",
+  "posterUrl": "https://example.com/poster.jpg",
+  "extend": "{\"duration\":150,\"ageLimit\":\"6+\",\"refundRule\":\"开演前24小时可退\"}"
 }
 
 ###
@@ -249,7 +273,8 @@ Content-Type: application/json
   "name": "上海 2036-06-01",
   "startTime": "2036-06-01T19:00:00",
   "endTime": "2036-06-01T22:00:00",
-  "limitPerUser": 4
+  "limitPerUser": 4,
+  "extend": "{\"preSaleLeadMinutes\":30,\"notice\":\"现场禁止携带食物\"}"
 }
 
 ###
@@ -330,22 +355,23 @@ POST {{adminHost}}/api/admin/seat/warmup/{{sessionId}}
 GET {{userHost}}/api/category/list
 
 ###
-# Step 12: 用户端查看上架演出列表（分页，支持 name/categoryId/venue 筛选）
-# - name / venue 走前缀模糊匹配，categoryId 精确匹配
-# - 返回的每条 item 是 ShowVO，自带 categoryName，前端无需再 join
-# 预期: {"code":200,"data":{"total":1,"list":[{"id":1,"name":"大冬天脱口秀","categoryId":1,"categoryName":"脱口秀",...}]}}
+# Step 12: 用户端查看上架演出列表（分页，支持 name/categoryId/cityCode/venue 筛选）
+# - name / venue 走前缀模糊匹配，categoryId / cityCode 精确匹配
+# - 返回的每条 item 是 ShowVO，自带 categoryName / cityName / address / extend，前端无需再 join
+# 预期: {"code":200,"data":{"total":1,"list":[{"id":1,"name":"大冬天脱口秀","categoryId":1,"categoryName":"脱口秀","cityCode":"110000","cityName":"北京","address":"...",...}]}}
 POST {{userHost}}/api/show/list
 Content-Type: application/json
 
 {
   "page": 1,
   "size": 10,
-  "categoryId": {{categoryId}}
+  "categoryId": {{categoryId}},
+  "cityCode": "110000"
 }
 
 ###
-# Step 12.1: 查看演出详情（返回 ShowVO，含 categoryName）
-# 预期: {"code":200,"data":{"id":1,"name":"大冬天脱口秀","categoryId":1,"categoryName":"脱口秀",...}}
+# Step 12.1: 查看演出详情（返回 ShowVO，含 categoryName / cityName / address / extend）
+# 预期: {"code":200,"data":{"id":1,"name":"大冬天脱口秀","cityCode":"110000","cityName":"北京",...}}
 GET {{userHost}}/api/show/{{showId}}
 
 ###
@@ -547,3 +573,41 @@ GET {{adminHost}}/api/admin/order/query?orderNo={{orderNo}}
 ###
 # Step 19.1: Admin 查询订单关联座位
 GET {{adminHost}}/api/admin/order/{{orderId}}/items
+
+###
+# Step 19.2: Admin 订单列表（分页 + 多条件筛选）
+# 所有筛选字段均可选：showId / sessionId / orderNo / status / startTime / endTime
+# 返回与用户端 /api/order/list 同结构（OrderStatusResponse，含 show / city / tickets 等）
+# 预期: {"code":200,"data":{"total":n,"list":[{...}]}}
+POST {{adminHost}}/api/admin/order/list
+Content-Type: application/json
+
+{
+  "page": 1,
+  "size": 20,
+  "showId": {{showId}},
+  "status": 1
+}
+
+###
+# Step 19.3: Admin 订单列表 — 仅按时间范围
+POST {{adminHost}}/api/admin/order/list
+Content-Type: application/json
+
+{
+  "page": 1,
+  "size": 20,
+  "startTime": "2026-01-01T00:00:00",
+  "endTime":   "2026-12-31T23:59:59"
+}
+
+###
+# Step 19.4: Admin 订单列表 — 按订单号定位
+POST {{adminHost}}/api/admin/order/list
+Content-Type: application/json
+
+{
+  "page": 1,
+  "size": 20,
+  "orderNo": "{{orderNo}}"
+}

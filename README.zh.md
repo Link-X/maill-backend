@@ -20,6 +20,8 @@
 
 - **演出管理**：演出 / 场次 / 座位 CRUD；管理端一键预热座位库存到 Redis
 - **分类管理**：独立的 `category` 表 + 管理端 CRUD；演出通过 `categoryId` 关联分类，列表/详情通过 LEFT JOIN 一次返回 `categoryName`，前端首页 tabs 直连 `/api/category/list`
+- **城市与地址**：`city` 表 seed 30 个主要城市（GB/T 行政区划代码）；演出含 `cityCode` + `address`，列表/详情/订单/场次详情统一返回 `cityName`；前端首页可按城市切换
+- **扩展字段**：`show` / `show_session` 提供 `extend JSON` 字段，产品新增展示型属性时无需 ALTER TABLE，约定写在前端文档（不参与 WHERE/索引）
 - **场地模板**：在 Room 上一次性定义座位布局和默认价格；创建场次时传入 `roomId`，座位和价格区域自动复制；提供 `/room/template` 聚合接口一次性返回 room + seats + areas
 - **图片上传**：管理端 `/upload/image` 直连 MinIO 对象存储（S3 兼容），支持演出海报、场地图等场景，返回外链 URL
 - **抢票核心**：Lua 原子限购检查 + Redis 批量锁座（任一失败全量回滚）+ 同步建单
@@ -132,25 +134,26 @@ bash docs/seed-data.sh
 | POST | `/api/auth/register` | 注册 | ✗ |
 | POST | `/api/auth/login` | 登录，返回 JWT | ✗ |
 
-#### 分类（首页 tabs）
+#### 分类 / 城市（首页 tabs）
 
 | 方法 | 路径 | 说明 | 登录 |
 |------|------|------|:----:|
 | GET  | `/api/category/list` | 启用的分类列表，按 sort 排序 | ✗ |
+| GET  | `/api/city/list` | 启用的城市列表，按 sort 排序（30 个主要城市 seed） | ✗ |
 
 #### 演出
 
 | 方法 | 路径 | 说明 | 登录 |
 |------|------|------|:----:|
-| POST | `/api/show/list` | 演出列表（分页，支持 name / categoryId / venue 筛选；item 返回 ShowVO，含 categoryName） | ✗ |
-| GET  | `/api/show/{id}` | 演出详情（ShowVO，含 categoryName） | ✗ |
+| POST | `/api/show/list` | 演出列表（分页，支持 name / categoryId / cityCode / venue 筛选；item 返回 ShowVO，含 categoryName / cityName / address / extend） | ✗ |
+| GET  | `/api/show/{id}` | 演出详情（ShowVO，含 categoryName / cityName / address / extend） | ✗ |
 
 #### 场次
 
 | 方法 | 路径 | 说明 | 登录 |
 |------|------|------|:----:|
 | POST | `/api/session/list` | 场次列表（分页，支持 status / startTime / endTime 筛选） | ✗ |
-| POST | `/api/session/detail` | 场次座位图（含区域价格 + 实时可售状态） | ✗ |
+| POST | `/api/session/detail` | 场次座位图（含区域价格 + 实时可售状态 + 演出与城市地址信息） | ✗ |
 
 #### 订单
 
@@ -158,7 +161,7 @@ bash docs/seed-data.sh
 |------|------|------|:----:|
 | POST | `/api/order/submit` | 锁座 + 建单，直接返回完整订单 | ✓ |
 | POST | `/api/order/cancel` | 取消订单（未支付直接取消；已支付 / 部分退款则发起退款） | ✓ |
-| GET  | `/api/order/orderDetails` | 订单详情（仅限本人） | ✓ |
+| GET  | `/api/order/orderDetails` | 订单详情（仅限本人；含 showCityName / showAddress 等） | ✓ |
 | POST | `/api/order/refundTicket` | 单票退款（支持已支付 / 部分退款订单） | ✓ |
 | POST | `/api/order/list` | 我的订单（分页，支持 status / 日期范围筛选） | ✓ |
 
@@ -184,6 +187,14 @@ bash docs/seed-data.sh
 | POST   | `/api/admin/category/create` | 新建分类（name 唯一，重名返回 1013） |
 | PUT    | `/api/admin/category/update` | 更新分类（status=0 即"禁用"，用户端列表不返回） |
 | DELETE | `/api/admin/category/{id}` | 删除分类（被引用时返回 1012） |
+
+#### 城市（只读）
+
+数据由 `schema.sql` seed，30 个主要城市，不开放 admin 写入。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/admin/city/list?status=&keyword=` | 后台创建演出时下拉选源 |
 
 #### 场地模板（Room 管理）
 
@@ -235,9 +246,10 @@ bash docs/seed-data.sh
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET  | `/api/admin/order/{id}` | 订单详情 |
-| GET  | `/api/admin/order/query` | 订单查询 |
-| GET  | `/api/admin/order/{id}/items` | 订单明细 |
+| GET  | `/api/admin/order/{id}` | 订单详情（原始 Order 实体） |
+| GET  | `/api/admin/order/query?orderNo=` | 按订单号查询 |
+| GET  | `/api/admin/order/{id}/items` | 订单明细（含座位） |
+| POST | `/api/admin/order/list` | **订单分页列表**，支持 showId / sessionId / orderNo / status / 时间范围筛选，返回与用户端同结构（含 show / city / tickets） |
 | GET  | `/api/admin/monitor/dashboard?sessionId=` | 实时座位统计（总数 / 可售 / 已售） |
 
 ---
@@ -342,15 +354,16 @@ public Result<?> submit(...) { }
 
 ## 数据库设计
 
-共 14 张表：
+共 15 张表：
 
 | 表名 | 说明 |
 |------|------|
 | `user` | 用户，BCrypt 密码 |
 | `user_role` | 用户角色（USER / ADMIN） |
 | `category` | 演出分类（name 唯一；sort/status 排序与启用控制；含 idx_status_sort 索引） |
-| `show` | 演出；`category_id` 关联分类；含 `idx_name` / `idx_venue` / `idx_category_id` 搜索/筛选索引 |
-| `show_session` | 场次；`room_id` 关联场地模板；含限购数 `limit_per_user` |
+| `city` | 城市（GB/T 行政区划代码，code 唯一）；seed 30 个主要城市，不开放写入 |
+| `show` | 演出；`category_id` / `city_code` 关联分类与城市；`address` 详细地址；`extend` JSON 扩展字段；含 `idx_name` / `idx_venue` / `idx_category_id` / `idx_city_code` 搜索/筛选索引 |
+| `show_session` | 场次；`room_id` 关联场地模板；含限购数 `limit_per_user`；`extend` JSON 扩展字段 |
 | `seat` | 座位底表，实时库存由 Redis 管理，支付后异步同步 status |
 | `seat_area` | 场次座位价格区域 |
 | `order` | 订单，索引 `idx_status_expire` |

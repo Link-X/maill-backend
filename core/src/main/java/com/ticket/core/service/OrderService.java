@@ -366,14 +366,47 @@ public class OrderService {
                                                    LocalDateTime startTime, LocalDateTime endTime) {
         int offset = (page - 1) * size;
         List<Order> orders = orderMapper.selectByUserId(userId, offset, size, status, startTime, endTime);
+        return assembleStatusResponses(orders);
+    }
+
+    /**
+     * 统计用户订单总数
+     */
+    public int countUserOrders(Long userId, Integer status, LocalDateTime startTime, LocalDateTime endTime) {
+        return orderMapper.countByUserId(userId, status, startTime, endTime);
+    }
+
+    /**
+     * 管理端订单列表（分页 + 多条件筛选）。
+     * 与 getUserOrders 共用批量预取与响应构建逻辑，避免 N+1。
+     */
+    public List<OrderStatusResponse> getAdminOrders(int page, int size,
+                                                    Long showId, Long sessionId, String orderNo,
+                                                    Integer status,
+                                                    LocalDateTime startTime, LocalDateTime endTime) {
+        int offset = (page - 1) * size;
+        List<Order> orders = orderMapper.selectByAdminCondition(
+                showId, sessionId, orderNo, status, startTime, endTime, offset, size);
+        return assembleStatusResponses(orders);
+    }
+
+    public int countAdminOrders(Long showId, Long sessionId, String orderNo,
+                                Integer status,
+                                LocalDateTime startTime, LocalDateTime endTime) {
+        return orderMapper.countByAdminCondition(showId, sessionId, orderNo, status, startTime, endTime);
+    }
+
+    /**
+     * 把一组 Order 装配成 OrderStatusResponse 列表 —— 提取自 getUserOrders，
+     * 复用同一套批量预取（items / sessions / shows / tickets / cities）避免 N+1。
+     */
+    private List<OrderStatusResponse> assembleStatusResponses(List<Order> orders) {
         if (orders.isEmpty()) {
             return List.of();
         }
-
         List<Long> orderIds = orders.stream().map(Order::getId).collect(Collectors.toList());
         List<Long> sessionIds = orders.stream().map(Order::getSessionId).distinct().collect(Collectors.toList());
 
-        // 4 次批量查询替代 N*4 次单查
         Map<Long, List<OrderItem>> itemsByOrderId = orderItemMapper.selectByOrderIds(orderIds)
                 .stream().collect(Collectors.groupingBy(OrderItem::getOrderId));
 
@@ -382,10 +415,9 @@ public class OrderService {
                 .collect(Collectors.toMap(ShowSession::getId, s -> s));
 
         List<Long> showIds = sessions.stream().map(ShowSession::getShowId).distinct().collect(Collectors.toList());
-        Map<Long, Show> showsById = showMapper.selectByIds(showIds)
-                .stream().collect(Collectors.toMap(Show::getId, s -> s));
+        Map<Long, Show> showsById = showIds.isEmpty() ? Map.of()
+                : showMapper.selectByIds(showIds).stream().collect(Collectors.toMap(Show::getId, s -> s));
 
-        // 批量预取 city，订单详情用 cityName。避免按 show 单查
         List<String> cityCodes = showsById.values().stream()
                 .map(Show::getCityCode)
                 .filter(c -> c != null && !c.isEmpty())
@@ -401,13 +433,6 @@ public class OrderService {
         return orders.stream()
                 .map(o -> buildStatusResponse(o, itemsByOrderId, sessionsById, showsById, ticketsByOrderId, cityNameByCode))
                 .collect(Collectors.toList());
-    }
-
-    /**
-     * 统计用户订单总数
-     */
-    public int countUserOrders(Long userId, Integer status, LocalDateTime startTime, LocalDateTime endTime) {
-        return orderMapper.countByUserId(userId, status, startTime, endTime);
     }
 
     /**

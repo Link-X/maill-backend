@@ -19,6 +19,8 @@ public class ShowVO {
     private String posterUrl;
     private String venue;
     private Integer status;
+    /** 扩展字段 JSON 串，原样透传给前端 */
+    private String extend;
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
 }

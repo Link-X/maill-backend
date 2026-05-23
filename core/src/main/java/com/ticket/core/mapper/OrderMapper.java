@@ -80,4 +80,24 @@ public interface OrderMapper {
                       @Param("status") Integer status,
                       @Param("startTime") LocalDateTime startTime,
                       @Param("endTime") LocalDateTime endTime);
+
+    /**
+     * 管理端订单分页查询：支持 showId / sessionId / orderNo / status / 时间范围筛选。
+     * showId 需要 JOIN show_session（订单只存 sessionId，演出维度需要二级关联）。
+     */
+    List<Order> selectByAdminCondition(@Param("showId") Long showId,
+                                       @Param("sessionId") Long sessionId,
+                                       @Param("orderNo") String orderNo,
+                                       @Param("status") Integer status,
+                                       @Param("startTime") LocalDateTime startTime,
+                                       @Param("endTime") LocalDateTime endTime,
+                                       @Param("offset") int offset,
+                                       @Param("limit") int limit);
+
+    int countByAdminCondition(@Param("showId") Long showId,
+                              @Param("sessionId") Long sessionId,
+                              @Param("orderNo") String orderNo,
+                              @Param("status") Integer status,
+                              @Param("startTime") LocalDateTime startTime,
+                              @Param("endTime") LocalDateTime endTime);
 }

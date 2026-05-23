@@ -22,6 +22,8 @@ public class ShowSession {
     private Integer rowCount;
     /** 座位网格总列数 */
     private Integer colCount;
+    /** 扩展字段 JSON 串（如开售提前N分钟/特殊提示）；不参与 WHERE/索引，约定见前端文档 */
+    private String extend;
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
 }

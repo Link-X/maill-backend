@@ -15,6 +15,7 @@
         <result column="poster_url"  property="posterUrl"/>
         <result column="venue"       property="venue"/>
         <result column="status"      property="status"/>
+        <result column="extend"      property="extend"/>
         <result column="create_time" property="createTime"/>
         <result column="update_time" property="updateTime"/>
     </resultMap>
@@ -32,15 +33,16 @@
         <result column="poster_url"    property="posterUrl"/>
         <result column="venue"         property="venue"/>
         <result column="status"        property="status"/>
+        <result column="extend"        property="extend"/>
         <result column="create_time"   property="createTime"/>
         <result column="update_time"   property="updateTime"/>
     </resultMap>
 
     <insert id="insert" parameterType="com.ticket.core.domain.entity.Show" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO `show` (name, description, category_id, city_code, address,
-                            poster_url, venue, status, create_time, update_time)
+                            poster_url, venue, status, extend, create_time, update_time)
         VALUES (#{name}, #{description}, #{categoryId}, #{cityCode}, #{address},
-                #{posterUrl}, #{venue}, #{status}, #{createTime}, #{updateTime})
+                #{posterUrl}, #{venue}, #{status}, #{extend}, #{createTime}, #{updateTime})
     </insert>
 
     <update id="update" parameterType="com.ticket.core.domain.entity.Show">
@@ -53,27 +55,28 @@
             poster_url  = #{posterUrl},
             venue       = #{venue},
             status      = #{status},
+            extend      = #{extend},
             update_time = #{updateTime}
         WHERE id = #{id}
     </update>
 
     <select id="selectById" resultMap="ShowResultMap">
         SELECT id, name, description, category_id, city_code, address,
-               poster_url, venue, status, create_time, update_time
+               poster_url, venue, status, extend, create_time, update_time
         FROM `show`
         WHERE id = #{id}
     </select>
 
     <select id="selectAll" resultMap="ShowResultMap">
         SELECT id, name, description, category_id, city_code, address,
-               poster_url, venue, status, create_time, update_time
+               poster_url, venue, status, extend, create_time, update_time
         FROM `show`
         ORDER BY create_time DESC
     </select>
 
     <select id="selectByStatus" resultMap="ShowResultMap">
         SELECT id, name, description, category_id, city_code, address,
-               poster_url, venue, status, create_time, update_time
+               poster_url, venue, status, extend, create_time, update_time
         FROM `show`
         WHERE status = #{status}
         ORDER BY create_time DESC
@@ -86,7 +89,7 @@
     -->
     <select id="selectVOByCondition" resultMap="ShowVOResultMap">
         SELECT s.id, s.name, s.description, s.category_id, s.city_code, s.address,
-               s.poster_url, s.venue, s.status, s.create_time, s.update_time,
+               s.poster_url, s.venue, s.status, s.extend, s.create_time, s.update_time,
                c.name AS category_name, ct.name AS city_name
         FROM `show` s
         LEFT JOIN category c  ON c.id   = s.category_id
@@ -116,7 +119,7 @@
 
     <select id="selectVOById" resultMap="ShowVOResultMap">
         SELECT s.id, s.name, s.description, s.category_id, s.city_code, s.address,
-               s.poster_url, s.venue, s.status, s.create_time, s.update_time,
+               s.poster_url, s.venue, s.status, s.extend, s.create_time, s.update_time,
                c.name AS category_name, ct.name AS city_name
         FROM `show` s
         LEFT JOIN category c  ON c.id   = s.category_id
@@ -126,7 +129,7 @@
 
     <select id="selectByIds" resultMap="ShowResultMap">
         SELECT id, name, description, category_id, city_code, address,
-               poster_url, venue, status, create_time, update_time
+               poster_url, venue, status, extend, create_time, update_time
         FROM `show`
         WHERE id IN
         <foreach collection="ids" item="id" open="(" separator="," close=")">
