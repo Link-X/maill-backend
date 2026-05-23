@@ -11,6 +11,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.*;
 
 import javax.validation.Valid;
+import java.util.List;
 
 @Tag(name = "场次管理", description = "演出场次 CRUD + 发布开售。传 roomId 后端会自动从场地模板复制座位和价格区域到该场次")
 @RestController
@@ -60,14 +61,14 @@ public class SessionController {
 
     @Operation(summary = "演出下的场次列表")
     @GetMapping("/list")
-    public Result<?> listSessions(@Parameter(description = "演出 ID") @RequestParam Long showId) {
+    public Result<List<ShowSession>> listSessions(@Parameter(description = "演出 ID") @RequestParam Long showId) {
         return Result.success(sessionService.listByShowId(showId));
     }
 
     @Operation(summary = "发布场次开售", description = "把 status 从 0 改为 1。建议先完成 /seat/warmup 把库存预热到 Redis 再发布，避免开售后用户立刻打到 DB 兜底逻辑")
     @PutMapping("/{sessionId}/publish")
-    public Result<?> publishSession(@Parameter(description = "场次 ID") @PathVariable Long sessionId) {
+    public Result<Void> publishSession(@Parameter(description = "场次 ID") @PathVariable Long sessionId) {
         sessionService.publish(sessionId);
-        return Result.success("场次已发布开售");
+        return Result.success();
     }
 }

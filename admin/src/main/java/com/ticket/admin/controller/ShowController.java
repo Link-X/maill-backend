@@ -11,6 +11,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.*;
 
 import javax.validation.Valid;
+import java.util.List;
 
 @Tag(name = "演出管理", description = "演出 CRUD。Request DTO 严格校验：前端不能传 id / status / createTime / updateTime（由后端管理）")
 @RestController
@@ -64,7 +65,7 @@ public class ShowController {
 
     @Operation(summary = "演出列表", description = "可按 status 过滤；不分页，全量返回（按 createTime 倒序）")
     @GetMapping("/list")
-    public Result<?> listShows(
+    public Result<List<Show>> listShows(
             @Parameter(description = "状态过滤 0/1/2；不传则返回全部") @RequestParam(required = false) Integer status) {
         return Result.success(showService.listAll(status));
     }

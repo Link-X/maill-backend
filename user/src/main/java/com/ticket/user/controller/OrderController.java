@@ -6,6 +6,7 @@ import com.ticket.common.result.Result;
 import com.ticket.core.domain.dto.OrderCreateRequest;
 import com.ticket.core.domain.dto.OrderStatusResponse;
 import com.ticket.core.domain.entity.Order;
+import com.ticket.core.domain.vo.PageVO;
 import com.ticket.common.annotation.LimitType;
 import com.ticket.common.annotation.RateLimit;
 import com.ticket.core.service.OrderCommandService;
@@ -28,7 +29,6 @@ import javax.validation.Valid;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
-import java.util.Map;
 
 @Slf4j
 @Tag(name = "订单（用户端）", description = "下单、取消、退款、查询。提交订单走 Redis Lua 原子锁座 + 同步建单；超时订单 5 分钟后由 MQ 自动取消")
@@ -144,11 +144,11 @@ public class OrderController {
 
     @Operation(summary = "我的订单分页列表", description = "返回当前登录用户的订单。支持 status / 日期范围筛选。每条 item 是 OrderStatusResponse（含演出/场次/票券）")
     @PostMapping("/list")
-    public Result<?> list(@Valid @RequestBody OrderListRequest req) {
+    public Result<PageVO<OrderStatusResponse>> list(@Valid @RequestBody OrderListRequest req) {
         Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
         List<OrderStatusResponse> orders = orderQueryService.getUserOrders(
                 userId, req.getPage(), req.getSize(), req.getStatus(), req.getStartTime(), req.getEndTime());
         int total = orderQueryService.countUserOrders(userId, req.getStatus(), req.getStartTime(), req.getEndTime());
-        return Result.success(Map.of("total", total, "list", orders));
+        return Result.success(PageVO.of(total, orders));
     }
 }

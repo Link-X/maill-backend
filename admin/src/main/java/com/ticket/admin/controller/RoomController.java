@@ -6,6 +6,8 @@ import com.ticket.admin.dto.RoomSeatBatchRequest;
 import com.ticket.admin.dto.RoomUpdateRequest;
 import com.ticket.common.result.Result;
 import com.ticket.core.domain.entity.Room;
+import com.ticket.core.domain.entity.RoomArea;
+import com.ticket.core.domain.entity.RoomSeat;
 import com.ticket.core.domain.vo.RoomTemplateVO;
 import com.ticket.core.service.RoomService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -14,6 +16,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.*;
 
 import javax.validation.Valid;
+import java.util.List;
 
 @Tag(name = "场地模板", description = "场地是座位布局与价格区域的模板，创建场次时传 roomId 后端会自动复制座位和默认价格区域到该场次；同一场地可被多场次复用")
 @RestController
@@ -59,33 +62,33 @@ public class RoomController {
 
     @Operation(summary = "场地列表", description = "返回所有场地（不分页，因为场地数量通常很小）")
     @GetMapping("/list")
-    public Result<?> listRooms() {
+    public Result<List<Room>> listRooms() {
         return Result.success(roomService.listRooms());
     }
 
     @Operation(summary = "保存场地座位模板（覆盖写）", description = "覆盖式：把当前 roomId 下所有 room_seat 删掉，重新插入。type=1 普通 / 2 情侣左 / 3 情侣右；情侣座必须成对出现且 pairSeatId 互相指")
     @PostMapping("/seat/batch")
-    public Result<?> saveSeats(@Valid @RequestBody RoomSeatBatchRequest req) {
+    public Result<Void> saveSeats(@Valid @RequestBody RoomSeatBatchRequest req) {
         roomService.saveSeats(req.getRoomId(), req.getSeats());
-        return Result.success("座位模板保存成功，共 " + req.getSeats().size() + " 个");
+        return Result.success();
     }
 
     @Operation(summary = "场地座位模板列表", description = "返回该场地的所有座位（含坐标/类型/区域）")
     @GetMapping("/seat/list")
-    public Result<?> listSeats(@Parameter(description = "场地 ID") @RequestParam Long roomId) {
+    public Result<List<RoomSeat>> listSeats(@Parameter(description = "场地 ID") @RequestParam Long roomId) {
         return Result.success(roomService.listSeats(roomId));
     }
 
     @Operation(summary = "保存场地默认价格区域（覆盖写）", description = "areaId 是字符串 ID，与 room_seat.areaId 对应；创建场次时这些默认价格会被复制到 seat_area，之后可在场次维度单独覆盖")
     @PostMapping("/area/save")
-    public Result<?> saveAreas(@Valid @RequestBody RoomAreaSaveRequest req) {
+    public Result<Void> saveAreas(@Valid @RequestBody RoomAreaSaveRequest req) {
         roomService.saveAreas(req.getRoomId(), req.getAreas());
-        return Result.success("价格区域保存成功");
+        return Result.success();
     }
 
     @Operation(summary = "场地默认价格区域列表")
     @GetMapping("/area/list")
-    public Result<?> listAreas(@Parameter(description = "场地 ID") @RequestParam Long roomId) {
+    public Result<List<RoomArea>> listAreas(@Parameter(description = "场地 ID") @RequestParam Long roomId) {
         return Result.success(roomService.listAreas(roomId));
     }
 
