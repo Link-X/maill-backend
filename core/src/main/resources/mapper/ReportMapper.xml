@@ -1,0 +1,327 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.ticket.core.mapper.ReportMapper">
+
+    <!-- 窗口约束统一为 [start, end)：start 闭，end 开，便于"今日 0 点至明日 0 点"这种语义 -->
+
+    <!-- ============================ overview ============================ -->
+
+    <select id="sumRevenue" resultType="java.math.BigDecimal">
+        SELECT COALESCE(SUM(total_amount), 0)
+        FROM `order`
+        WHERE status IN (1, 5)
+          AND create_time &gt;= #{start} AND create_time &lt; #{end}
+    </select>
+
+    <select id="countPaidOrders" resultType="int">
+        SELECT COUNT(*) FROM `order`
+        WHERE status IN (1, 5)
+          AND create_time &gt;= #{start} AND create_time &lt; #{end}
+    </select>
+
+    <select id="countPendingOrders" resultType="int">
+        SELECT COUNT(*) FROM `order`
+        WHERE status = 0
+          AND create_time &gt;= #{start} AND create_time &lt; #{end}
+    </select>
+
+    <select id="sumRefundAmount" resultType="java.math.BigDecimal">
+        SELECT COALESCE(SUM(refund_amount), 0)
+        FROM `order`
+        WHERE create_time &gt;= #{start} AND create_time &lt; #{end}
+    </select>
+
+    <select id="countRefundOrders" resultType="int">
+        SELECT COUNT(*) FROM `order`
+        WHERE status IN (3, 4, 5)
+          AND create_time &gt;= #{start} AND create_time &lt; #{end}
+    </select>
+
+    <select id="countTicketsSold" resultType="int">
+        SELECT COUNT(*) FROM order_item oi
+        JOIN `order` o ON o.id = oi.order_id
+        WHERE o.status IN (1, 5)
+          AND o.create_time &gt;= #{start} AND o.create_time &lt; #{end}
+    </select>
+
+    <select id="countTicketsVerified" resultType="int">
+        SELECT COUNT(*) FROM ticket t
+        JOIN `order` o ON o.id = t.order_id
+        WHERE t.status = 1
+          AND o.create_time &gt;= #{start} AND o.create_time &lt; #{end}
+    </select>
+
+    <!-- ============================ timeseries ============================ -->
+
+    <select id="timeseriesByDay" resultType="com.ticket.core.domain.vo.report.TimeseriesPointVO">
+        SELECT DATE_FORMAT(create_time, '%Y-%m-%d') AS date,
+               COUNT(CASE WHEN status IN (1,5) THEN 1 END)            AS orderCount,
+               COALESCE(SUM(CASE WHEN status IN (1,5) THEN total_amount ELSE 0 END), 0) AS revenue,
+               COALESCE(SUM(refund_amount), 0)                         AS refundAmount
+        FROM `order`
+        WHERE create_time &gt;= #{start} AND create_time &lt; #{end}
+        GROUP BY DATE_FORMAT(create_time, '%Y-%m-%d')
+        ORDER BY date
+    </select>
+
+    <select id="timeseriesByHour" resultType="com.ticket.core.domain.vo.report.TimeseriesPointVO">
+        SELECT DATE_FORMAT(create_time, '%Y-%m-%dT%H') AS date,
+               COUNT(CASE WHEN status IN (1,5) THEN 1 END)            AS orderCount,
+               COALESCE(SUM(CASE WHEN status IN (1,5) THEN total_amount ELSE 0 END), 0) AS revenue,
+               COALESCE(SUM(refund_amount), 0)                         AS refundAmount
+        FROM `order`
+        WHERE create_time &gt;= #{start} AND create_time &lt; #{end}
+        GROUP BY DATE_FORMAT(create_time, '%Y-%m-%dT%H')
+        ORDER BY date
+    </select>
+
+    <select id="timeseriesByMonth" resultType="com.ticket.core.domain.vo.report.TimeseriesPointVO">
+        SELECT DATE_FORMAT(create_time, '%Y-%m') AS date,
+               COUNT(CASE WHEN status IN (1,5) THEN 1 END)            AS orderCount,
+               COALESCE(SUM(CASE WHEN status IN (1,5) THEN total_amount ELSE 0 END), 0) AS revenue,
+               COALESCE(SUM(refund_amount), 0)                         AS refundAmount
+        FROM `order`
+        WHERE create_time &gt;= #{start} AND create_time &lt; #{end}
+        GROUP BY DATE_FORMAT(create_time, '%Y-%m')
+        ORDER BY date
+    </select>
+
+    <!-- ============================ by-show ============================ -->
+    <!--
+      用两个独立子查询分别聚合：营收子查询 + ticket 数子查询，避免 JOIN 行复制后还要"除回去"。
+      只返回有营收订单的演出（rev.orderCount IS NOT NULL）。
+    -->
+    <select id="byShow" resultType="com.ticket.core.domain.vo.report.ByShowVO">
+        SELECT s.id   AS showId,
+               s.name AS showName,
+               c.name AS categoryName,
+               ct.name AS cityName,
+               COALESCE(rev.orderCount, 0)   AS orderCount,
+               COALESCE(tic.cnt, 0)          AS ticketCount,
+               COALESCE(rev.amt, 0)          AS revenue,
+               COALESCE(rev.refundAmt, 0)    AS refundAmount
+        FROM `show` s
+        LEFT JOIN category c  ON c.id   = s.category_id
+        LEFT JOIN city     ct ON ct.code = s.city_code
+        LEFT JOIN (
+            SELECT ss.show_id,
+                   COUNT(o.id)         AS orderCount,
+                   SUM(o.total_amount) AS amt,
+                   SUM(o.refund_amount) AS refundAmt
+            FROM `order` o
+            JOIN show_session ss ON ss.id = o.session_id
+            WHERE o.status IN (1, 5)
+              AND o.create_time &gt;= #{start} AND o.create_time &lt; #{end}
+            GROUP BY ss.show_id
+        ) rev ON rev.show_id = s.id
+        LEFT JOIN (
+            SELECT ss.show_id, COUNT(oi.id) AS cnt
+            FROM order_item oi
+            JOIN `order` o ON o.id = oi.order_id
+            JOIN show_session ss ON ss.id = o.session_id
+            WHERE o.status IN (1, 5)
+              AND o.create_time &gt;= #{start} AND o.create_time &lt; #{end}
+            GROUP BY ss.show_id
+        ) tic ON tic.show_id = s.id
+        WHERE rev.orderCount IS NOT NULL
+        ORDER BY
+        <choose>
+            <when test="sort == 'tickets'">ticketCount DESC</when>
+            <when test="sort == 'orderCount'">orderCount DESC</when>
+            <otherwise>revenue DESC</otherwise>
+        </choose>
+        LIMIT #{limit}
+    </select>
+
+    <!-- ============================ by-category ============================ -->
+
+    <select id="byCategory" resultType="com.ticket.core.domain.vo.report.ByCategoryVO">
+        SELECT s.category_id AS categoryId,
+               c.name        AS categoryName,
+               COALESCE(SUM(rev.orderCount), 0) AS orderCount,
+               COALESCE(SUM(tic.cnt), 0)        AS ticketCount,
+               COALESCE(SUM(rev.amt), 0)        AS revenue
+        FROM `show` s
+        LEFT JOIN category c ON c.id = s.category_id
+        LEFT JOIN (
+            SELECT ss.show_id,
+                   COUNT(o.id)         AS orderCount,
+                   SUM(o.total_amount) AS amt
+            FROM `order` o
+            JOIN show_session ss ON ss.id = o.session_id
+            WHERE o.status IN (1, 5)
+              AND o.create_time &gt;= #{start} AND o.create_time &lt; #{end}
+            GROUP BY ss.show_id
+        ) rev ON rev.show_id = s.id
+        LEFT JOIN (
+            SELECT ss.show_id, COUNT(oi.id) AS cnt
+            FROM order_item oi
+            JOIN `order` o ON o.id = oi.order_id
+            JOIN show_session ss ON ss.id = o.session_id
+            WHERE o.status IN (1, 5)
+              AND o.create_time &gt;= #{start} AND o.create_time &lt; #{end}
+            GROUP BY ss.show_id
+        ) tic ON tic.show_id = s.id
+        GROUP BY s.category_id, c.name
+        HAVING revenue &gt; 0
+        ORDER BY revenue DESC
+    </select>
+
+    <!-- ============================ by-city ============================ -->
+
+    <select id="byCity" resultType="com.ticket.core.domain.vo.report.ByCityVO">
+        SELECT s.city_code AS cityCode,
+               ct.name     AS cityName,
+               COALESCE(SUM(rev.orderCount), 0) AS orderCount,
+               COALESCE(SUM(tic.cnt), 0)        AS ticketCount,
+               COALESCE(SUM(rev.amt), 0)        AS revenue
+        FROM `show` s
+        LEFT JOIN city ct ON ct.code = s.city_code
+        LEFT JOIN (
+            SELECT ss.show_id,
+                   COUNT(o.id)         AS orderCount,
+                   SUM(o.total_amount) AS amt
+            FROM `order` o
+            JOIN show_session ss ON ss.id = o.session_id
+            WHERE o.status IN (1, 5)
+              AND o.create_time &gt;= #{start} AND o.create_time &lt; #{end}
+            GROUP BY ss.show_id
+        ) rev ON rev.show_id = s.id
+        LEFT JOIN (
+            SELECT ss.show_id, COUNT(oi.id) AS cnt
+            FROM order_item oi
+            JOIN `order` o ON o.id = oi.order_id
+            JOIN show_session ss ON ss.id = o.session_id
+            WHERE o.status IN (1, 5)
+              AND o.create_time &gt;= #{start} AND o.create_time &lt; #{end}
+            GROUP BY ss.show_id
+        ) tic ON tic.show_id = s.id
+        GROUP BY s.city_code, ct.name
+        HAVING revenue &gt; 0
+        ORDER BY revenue DESC
+    </select>
+
+    <!-- ============================ status-distribution ============================ -->
+    <!-- 用 UNION ALL 拼出 0..5 全部 6 行（即使数据库里某 status 没有也返回 0 行），让前端饼图渲染稳定 -->
+    <select id="statusDistribution" resultType="com.ticket.core.domain.vo.report.StatusDistVO">
+        SELECT s.st AS status,
+               COALESCE(t.cnt, 0)    AS count,
+               COALESCE(t.sumAmt, 0) AS totalAmountSum
+        FROM (
+            SELECT 0 AS st UNION ALL SELECT 1 UNION ALL SELECT 2
+            UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5
+        ) s
+        LEFT JOIN (
+            SELECT status, COUNT(*) AS cnt, SUM(total_amount) AS sumAmt
+            FROM `order`
+            WHERE create_time &gt;= #{start} AND create_time &lt; #{end}
+            GROUP BY status
+        ) t ON t.status = s.st
+        ORDER BY s.st
+    </select>
+
+    <!-- ============================ hour-distribution ============================ -->
+    <!-- 同样补齐 0..23 -->
+    <select id="hourDistribution" resultType="com.ticket.core.domain.vo.report.HourDistVO">
+        SELECT h.hr AS hour, COALESCE(t.cnt, 0) AS orderCount
+        FROM (
+            SELECT 0 AS hr UNION ALL SELECT 1  UNION ALL SELECT 2  UNION ALL SELECT 3
+            UNION ALL SELECT 4  UNION ALL SELECT 5  UNION ALL SELECT 6  UNION ALL SELECT 7
+            UNION ALL SELECT 8  UNION ALL SELECT 9  UNION ALL SELECT 10 UNION ALL SELECT 11
+            UNION ALL SELECT 12 UNION ALL SELECT 13 UNION ALL SELECT 14 UNION ALL SELECT 15
+            UNION ALL SELECT 16 UNION ALL SELECT 17 UNION ALL SELECT 18 UNION ALL SELECT 19
+            UNION ALL SELECT 20 UNION ALL SELECT 21 UNION ALL SELECT 22 UNION ALL SELECT 23
+        ) h
+        LEFT JOIN (
+            SELECT HOUR(create_time) AS hr, COUNT(*) AS cnt
+            FROM `order`
+            WHERE create_time &gt;= #{start} AND create_time &lt; #{end}
+            GROUP BY HOUR(create_time)
+        ) t ON t.hr = h.hr
+        ORDER BY h.hr
+    </select>
+
+    <!-- ============================ by-session ============================ -->
+    <!--
+      与其他报表不同，by-session 窗口按 session.start_time 过滤（业务上更直观：本月有哪些场次）。
+      实际占座 = ticket WHERE status IN (0,1) —— 排除已退款（status=2）。
+    -->
+    <select id="bySession" resultType="com.ticket.core.domain.vo.report.BySessionVO">
+        SELECT ss.id            AS sessionId,
+               s.name           AS showName,
+               ss.name          AS sessionName,
+               ss.start_time    AS startTime,
+               ss.total_seats   AS totalSeats,
+               COALESCE(sold.cnt, 0)         AS soldSeats,
+               CASE WHEN ss.total_seats &gt; 0
+                    THEN COALESCE(sold.cnt, 0) / ss.total_seats
+                    ELSE 0 END               AS fillRate,
+               COALESCE(rev.amt, 0)          AS revenue
+        FROM show_session ss
+        JOIN `show` s ON s.id = ss.show_id
+        LEFT JOIN (
+            SELECT o.session_id, COUNT(t.id) AS cnt
+            FROM ticket t
+            JOIN `order` o ON o.id = t.order_id
+            WHERE t.status IN (0, 1)
+            GROUP BY o.session_id
+        ) sold ON sold.session_id = ss.id
+        LEFT JOIN (
+            SELECT session_id, SUM(total_amount) AS amt
+            FROM `order`
+            WHERE status IN (1, 5)
+            GROUP BY session_id
+        ) rev ON rev.session_id = ss.id
+        WHERE ss.start_time &gt;= #{start} AND ss.start_time &lt; #{end}
+        <if test="showId != null">AND ss.show_id = #{showId}</if>
+        ORDER BY
+        <choose>
+            <when test="sort == 'revenue'">revenue DESC</when>
+            <when test="sort == 'startTime'">ss.start_time ASC</when>
+            <otherwise>fillRate DESC</otherwise>
+        </choose>
+        LIMIT #{limit}
+    </select>
+
+    <!-- ============================ user-stats ============================ -->
+
+    <select id="countDistinctBuyers" resultType="int">
+        SELECT COUNT(DISTINCT user_id) FROM `order`
+        WHERE status IN (1, 5)
+          AND create_time &gt;= #{start} AND create_time &lt; #{end}
+    </select>
+
+    <select id="countRepeatBuyers" resultType="int">
+        SELECT COUNT(*) FROM (
+            SELECT user_id FROM `order`
+            WHERE status IN (1, 5)
+              AND create_time &gt;= #{start} AND create_time &lt; #{end}
+            GROUP BY user_id
+            HAVING COUNT(*) &gt;= 2
+        ) t
+    </select>
+
+    <!-- ============================ cancellation-stats ============================ -->
+
+    <select id="countCreatedOrders" resultType="int">
+        SELECT COUNT(*) FROM `order`
+        WHERE create_time &gt;= #{start} AND create_time &lt; #{end}
+    </select>
+
+    <select id="countCancelledByReason" resultType="int">
+        SELECT COUNT(*) FROM `order`
+        WHERE status = 2 AND cancel_reason = #{reason}
+          AND create_time &gt;= #{start} AND create_time &lt; #{end}
+    </select>
+
+    <!-- ============================ refund-stats（按 status 计数） ============================ -->
+
+    <select id="countByStatus" resultType="int">
+        SELECT COUNT(*) FROM `order`
+        WHERE status = #{status}
+          AND create_time &gt;= #{start} AND create_time &lt; #{end}
+    </select>
+
+</mapper>

@@ -6,11 +6,11 @@
 
     <!-- 修改 order 表字段时只改这里 -->
     <sql id="Columns">
-        id, order_no, user_id, session_id, total_amount, status,
+        id, order_no, user_id, session_id, total_amount, status, refund_amount, cancel_reason,
         pay_time, expire_time, create_time, update_time
     </sql>
     <sql id="ColumnsAliased">
-        o.id, o.order_no, o.user_id, o.session_id, o.total_amount, o.status,
+        o.id, o.order_no, o.user_id, o.session_id, o.total_amount, o.status, o.refund_amount, o.cancel_reason,
         o.pay_time, o.expire_time, o.create_time, o.update_time
     </sql>
 
@@ -22,6 +22,8 @@
         <result column="session_id" property="sessionId"/>
         <result column="total_amount" property="totalAmount"/>
         <result column="status" property="status"/>
+        <result column="refund_amount" property="refundAmount"/>
+        <result column="cancel_reason" property="cancelReason"/>
         <result column="pay_time" property="payTime"/>
         <result column="expire_time" property="expireTime"/>
         <result column="create_time" property="createTime"/>
@@ -53,6 +55,23 @@
         UPDATE `order`
         SET status = #{status}, update_time = NOW()
         WHERE id = #{id} AND status = 0
+    </update>
+
+    <!-- 取消订单并写入 cancel_reason（仅 status=0 才允许；用于区分用户取消/超时取消） -->
+    <update id="cancelWithReason">
+        UPDATE `order`
+        SET status = 2,
+            cancel_reason = #{reason},
+            update_time = NOW()
+        WHERE id = #{id} AND status = 0
+    </update>
+
+    <!-- 累加 refund_amount（多次部分退款会调用多次） -->
+    <update id="addRefundAmount">
+        UPDATE `order`
+        SET refund_amount = COALESCE(refund_amount, 0) + #{incr},
+            update_time = NOW()
+        WHERE id = #{id}
     </update>
 
     <!-- 条件更新订单状态（从 fromStatus 变更为 toStatus，乐观锁保护） -->

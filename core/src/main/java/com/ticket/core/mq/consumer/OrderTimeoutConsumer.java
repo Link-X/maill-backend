@@ -20,7 +20,7 @@ public class OrderTimeoutConsumer {
     public void handleOrderTimeout(Long orderId) {
         log.info("收到订单超时消息，orderId={}", orderId);
         try {
-            orderCommandService.cancelOrder(orderId);
+            orderCommandService.cancelByTimeout(orderId);
         } catch (Exception e) {
             log.error("订单超时取消失败，orderId={}", orderId, e);
             throw e; // 重新抛出，触发 RabbitMQ 重试

@@ -172,17 +172,28 @@ public class OrderCommandService {
         return order;
     }
 
+    /** 用户主动取消（写 cancel_reason=0） */
+    public void cancelByUser(Long orderId) {
+        cancelOrder(orderId, 0);
+    }
+
+    /** 超时自动取消（写 cancel_reason=1），由 OrderTimeoutConsumer 调 */
+    public void cancelByTimeout(Long orderId) {
+        cancelOrder(orderId, 1);
+    }
+
     /**
-     * 取消订单（仅未支付）
+     * 取消订单（仅未支付）。
+     * @param cancelReason 0=用户主动 1=超时自动
      */
     @Transactional(rollbackFor = Exception.class)
-    public void cancelOrder(Long orderId) {
+    protected void cancelOrder(Long orderId, int cancelReason) {
         Order order = orderMapper.selectById(orderId);
         if (order == null || order.getStatus() != 0) {
             return;
         }
 
-        int affected = orderMapper.updateStatus(orderId, 2);
+        int affected = orderMapper.cancelWithReason(orderId, cancelReason);
         if (affected == 0) {
             return;
         }
@@ -273,11 +284,27 @@ public class OrderCommandService {
             return;
         }
 
+        // 计算本次退款金额（按 order_item.price 累加），并累加到 order.refund_amount。
+        // 部分退款会触发多次 doRefund，每次只算本次涉及的座位金额。
+        List<OrderItem> items = orderItemMapper.selectByOrderId(order.getId());
+        java.util.Set<Long> refundSet = new java.util.HashSet<>(refundSeatIds);
+        BigDecimal refundIncr = items.stream()
+                .filter(it -> refundSet.contains(it.getSeatId()))
+                .map(OrderItem::getPrice)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (refundIncr.compareTo(BigDecimal.ZERO) > 0) {
+            orderMapper.addRefundAmount(order.getId(), refundIncr);
+        }
+
         try {
             refundProducer.sendRefund(order.getId(), refundSeatIds);
         } catch (Exception e) {
             log.error("退款 MQ 发送失败，回滚订单状态，orderId={}", order.getId(), e);
             orderMapper.updateStatusFrom(order.getId(), 3, order.getStatus());
+            // 回滚 refund_amount（减回去）
+            if (refundIncr.compareTo(BigDecimal.ZERO) > 0) {
+                orderMapper.addRefundAmount(order.getId(), refundIncr.negate());
+            }
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "退款系统繁忙，请稍后重试");
         }
 

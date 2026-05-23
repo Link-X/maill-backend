@@ -35,6 +35,17 @@ public interface OrderMapper {
     int updateStatus(@Param("id") Long id, @Param("status") Integer status);
 
     /**
+     * 取消订单并写入原因（仅 status=0 才允许）
+     * @param reason 0=用户主动 1=超时自动
+     */
+    int cancelWithReason(@Param("id") Long id, @Param("reason") Integer reason);
+
+    /**
+     * 累加已退款金额（多次部分退款时调用多次）
+     */
+    int addRefundAmount(@Param("id") Long id, @Param("incr") java.math.BigDecimal incr);
+
+    /**
      * 条件更新订单状态（从 fromStatus 变更为 toStatus，乐观锁保护）
      */
     int updateStatusFrom(@Param("id") Long id,

@@ -130,6 +130,8 @@ CREATE TABLE IF NOT EXISTS `order` (
     session_id BIGINT NOT NULL COMMENT '场次ID',
     total_amount DECIMAL(10,2) NOT NULL COMMENT '订单总金额',
     status INT NOT NULL DEFAULT 0 COMMENT '状态: 0=待支付, 1=已支付, 2=已取消, 3=退款中, 4=已退款, 5=部分退款',
+    refund_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00 COMMENT '已退款金额累计（部分退款会多次累加）',
+    cancel_reason TINYINT DEFAULT NULL COMMENT '取消原因: 0=用户主动, 1=超时自动; status=2 时才有值',
     pay_time DATETIME DEFAULT NULL COMMENT '支付时间',
     expire_time DATETIME NOT NULL COMMENT '过期时间(下单后5分钟)',
     create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -139,7 +141,8 @@ CREATE TABLE IF NOT EXISTS `order` (
     KEY idx_user_id (user_id),
     KEY idx_user_status (user_id, status) COMMENT '用于用户订单列表查询',
     KEY idx_session_id (session_id) COMMENT '用于按场次查询订单',
-    KEY idx_status_expire (status, expire_time) COMMENT '用于超时订单扫描'
+    KEY idx_status_expire (status, expire_time) COMMENT '用于超时订单扫描',
+    KEY idx_create_time (create_time) COMMENT '用于报表按时间窗口扫描'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='订单表';
 
 -- 7. 订单明细表

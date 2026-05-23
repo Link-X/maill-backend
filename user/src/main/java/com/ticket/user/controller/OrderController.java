@@ -103,7 +103,7 @@ public class OrderController {
         }
         if (order.getStatus() == 0) {
             // 未支付：直接同步取消，立即释放座位
-            orderCommandService.cancelOrder(order.getId());
+            orderCommandService.cancelByUser(order.getId());
         } else if (order.getStatus() == 1 || order.getStatus() == 5) {
             // 已支付 或 部分退款：发起退款，退还剩余未使用票券，异步通过 MQ 处理
             orderCommandService.initiateRefund(order.getId());

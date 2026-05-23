@@ -24,6 +24,7 @@
 - **扩展字段**：`show` / `show_session` 提供 `extend JSON` 字段，产品新增展示型属性时无需 ALTER TABLE，约定写在前端文档（不参与 WHERE/索引）
 - **场地模板**：在 Room 上一次性定义座位布局和默认价格；创建场次时传入 `roomId`，座位和价格区域自动复制；提供 `/room/template` 聚合接口一次性返回 room + seats + areas
 - **图片上传**：管理端 `/upload/image` 直连 MinIO 对象存储（S3 兼容），支持演出海报、场地图等场景，返回外链 URL
+- **统计报表**：管理端 `/api/admin/report/*` 提供 11 个聚合接口（概览/趋势/按演出/分类/城市/状态/时段/场次售罄率/用户/退款/取消率）；时间窗口支持 1d/7d/30d/90d 滚动或自定义；结果 Redis 5 分钟缓存，无需关心 N+1。订单表 `refund_amount` 累计、`cancel_reason` 区分用户/超时取消
 - **抢票核心**：Lua 原子限购检查 + Redis 批量锁座（任一失败全量回滚）+ 同步建单
 - **防超卖**：Redis Set 原子扣库存，DB 层二次校验兜底
 - **订单超时**：RabbitMQ TTL + 死信队列，5 分钟精准触发取消并释放库存
@@ -176,6 +177,7 @@ bash docs/seed-data.sh
 | 座位（手动模式） | `/api/admin/seat/*` | 不走场地模板时的座位批量 / 价格区域 / Redis 预热 |
 | 订单管理 | `/api/admin/order/*` | 单查 / 列表（showId / sessionId / orderNo / status / 时间筛选） |
 | 监控 | `/api/admin/monitor/dashboard` | 场次座位实时统计（总数 / 可售 / 已售） |
+| **统计报表** | `/api/admin/report/*` | 11 个接口：概览 / 时间趋势 / 演出/分类/城市排行 / 状态&时段分布 / 场次售罄率 / 用户 / 退款 / 取消率（Redis 5min 缓存） |
 
 ---
 
@@ -425,7 +427,7 @@ public Result<?> submit(...) { }
 | `show_session` | 场次；`room_id` 关联场地模板；含限购数 `limit_per_user`；`extend` JSON 扩展字段 |
 | `seat` | 座位底表，实时库存由 Redis 管理，支付后异步同步 status |
 | `seat_area` | 场次座位价格区域 |
-| `order` | 订单，索引 `idx_status_expire` |
+| `order` | 订单；`refund_amount` 累计退款金额、`cancel_reason` 区分用户/超时取消；索引 `idx_status_expire` / `idx_create_time`（报表用） |
 | `order_item` | 订单行，含价格快照 |
 | `payment` | 支付记录 |
 | `ticket` | 票券，8 位友好票号（排除 O/0/I/1）+ UUID 二维码 |

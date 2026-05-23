@@ -24,6 +24,7 @@ A high-concurrency ticket booking backend targeting thousands to tens of thousan
 - **Extend Fields** — `show` / `show_session` expose an `extend JSON` column so product can add display-only attributes without ALTER TABLE; conventions live in the frontend doc (not used in WHERE / indexes)
 - **Venue Templates** — Define seat layout and default prices once on a room; sessions created with a `roomId` auto-copy all seats and price areas instantly; `/room/template` endpoint returns room + seats + areas in a single call
 - **Image Upload** — Admin `/upload/image` endpoint backed by MinIO object storage (S3-compatible) for show posters, venue maps, etc.; returns an externally accessible URL
+- **Reporting** — Admin `/api/admin/report/*` exposes 11 aggregate endpoints (overview / time series / by show / category / city / status / hour / session fill-rate / user / refund / cancellation); rolling time windows (1d/7d/30d/90d) or custom; results cached in Redis for 5 minutes. The `order` table now tracks `refund_amount` cumulatively and a `cancel_reason` to distinguish user-cancelled vs. timeout-cancelled
 - **Booking Core** — Lua atomic purchase-limit check + Redis batch seat lock (full rollback on any failure) + synchronous order creation
 - **Oversell Prevention** — Redis Set atomic `SREM` deduction + DB-level safety check
 - **Order Timeout** — RabbitMQ TTL + dead-letter queue, cancels order and releases inventory exactly 5 minutes after creation
@@ -176,6 +177,7 @@ Creates 1 venue template (20 × 20 seats, VIP front section), 5 shows, 15 sessio
 | Seats (manual) | `/api/admin/seat/*` | Batch seats / price areas / Redis warmup when not using a room template |
 | Orders | `/api/admin/order/*` | Single / list (filter by showId / sessionId / orderNo / status / time range) |
 | Monitor | `/api/admin/monitor/dashboard` | Real-time seat counts (total / available / sold) |
+| **Reports** | `/api/admin/report/*` | 11 aggregate endpoints: overview / time series / by show, category, city / status & hour distributions / session fill-rate / users / refunds / cancellations (Redis 5-min cache) |
 
 ---
 
@@ -425,7 +427,7 @@ public Result<?> submit(...) { }
 | `show_session` | Sessions; `room_id` links the venue template; `limit_per_user` cap; `extend` JSON for ad-hoc display fields |
 | `seat` | Seat master table; real-time inventory lives in Redis, `status` synced async after payment |
 | `seat_area` | Per-session seat price areas |
-| `order` | Orders; index `idx_status_expire` |
+| `order` | Orders; `refund_amount` (cumulative) and `cancel_reason` (user vs. timeout) drive reports; indexes `idx_status_expire` / `idx_create_time` (for reporting time-window scans) |
 | `order_item` | Order lines with price snapshot |
 | `payment` | Payment records |
 | `ticket` | Tickets with 8-char friendly ticket number (excludes O/0/I/1) + UUID QR code |
