@@ -86,7 +86,7 @@ common ← core ← admin
 docker-compose up -d
 ```
 
-Starts MySQL 8 (3306), Redis 7 (6379), RabbitMQ 3 (5672, management UI on 15672), and MinIO (9000 API / 9001 console). `sql/schema.sql` is executed automatically on first run; the MinIO `ticket` bucket is auto-created with a public-read policy the first time admin starts.
+Starts MySQL 8 (3306), Redis 7 (6379), RabbitMQ 3 (5672, management UI on 15672), and MinIO (9000 API / 9001 console). `sql/schema.sql` is executed automatically on first run; the MinIO `image` bucket (configured via `minio.bucket` in `application-dev.yml`) is auto-created with a public-read policy the first time admin starts — no manual setup required.
 
 > **RabbitMQ Management UI**: http://localhost:15672 (guest / guest)
 > **MinIO Console**: http://localhost:9001 (minioadmin / minioadmin123)

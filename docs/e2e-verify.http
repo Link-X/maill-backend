@@ -129,7 +129,7 @@ GET {{adminHost}}/api/admin/room/template?roomId={{roomId}}
 # Step 5.5: 上传图片到 MinIO (Admin)
 # multipart/form-data；表单字段 file（必填）+ dir（可选，目录前缀，默认 misc）
 # 常用 dir 取值: posters（演出海报）/ rooms（场地图）/ avatars（用户头像）
-# 预期: {"code":200,"data":{"url":"http://localhost:9000/ticket/posters/2026/05/23/xxxxx.jpg"}}
+# 预期: {"code":200,"data":{"url":"http://localhost:9000/image/posters/2026/05/23/xxxxx.jpg"}}
 #
 # IntelliJ HTTP Client 上传文件语法（注意需要替换为本地真实文件路径）:
 POST {{adminHost}}/api/admin/upload/image?dir=posters
