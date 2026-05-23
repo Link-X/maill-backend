@@ -31,7 +31,7 @@ public class ShowController {
         show.setPosterUrl(req.getPosterUrl());
         show.setExtend(req.getExtend());
         // status 由 service 强制为 1；id / createTime / updateTime 由 service 生成
-        return Result.success(showService.createShow(show));
+        return Result.success(showService.create(show));
     }
 
     @PutMapping("/update")
@@ -47,16 +47,16 @@ public class ShowController {
         show.setPosterUrl(req.getPosterUrl());
         show.setExtend(req.getExtend());
         show.setStatus(req.getStatus());
-        return Result.success(showService.updateShow(show));
+        return Result.success(showService.update(show));
     }
 
     @GetMapping("/{id}")
     public Result<Show> getShow(@PathVariable Long id) {
-        return Result.success(showService.getShow(id));
+        return Result.success(showService.getById(id));
     }
 
     @GetMapping("/list")
     public Result<?> listShows(@RequestParam(required = false) Integer status) {
-        return Result.success(showService.listShows(status));
+        return Result.success(showService.listAll(status));
     }
 }

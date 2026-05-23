@@ -4,7 +4,7 @@ import com.ticket.admin.dto.AdminOrderListRequest;
 import com.ticket.common.result.Result;
 import com.ticket.core.domain.dto.OrderStatusResponse;
 import com.ticket.core.mapper.OrderMapper;
-import com.ticket.core.service.OrderService;
+import com.ticket.core.service.OrderQueryService;
 import org.springframework.web.bind.annotation.*;
 
 import javax.validation.Valid;
@@ -16,11 +16,11 @@ import java.util.Map;
 public class OrderController {
 
     private final OrderMapper orderMapper;
-    private final OrderService orderService;
+    private final OrderQueryService orderQueryService;
 
-    public OrderController(OrderMapper orderMapper, OrderService orderService) {
+    public OrderController(OrderMapper orderMapper, OrderQueryService orderQueryService) {
         this.orderMapper = orderMapper;
-        this.orderService = orderService;
+        this.orderQueryService = orderQueryService;
     }
 
     @GetMapping("/{id}")
@@ -30,12 +30,12 @@ public class OrderController {
 
     @GetMapping("/query")
     public Result<?> queryByOrderNo(@RequestParam String orderNo) {
-        return Result.success(orderService.getByOrderNo(orderNo));
+        return Result.success(orderQueryService.getByOrderNo(orderNo));
     }
 
     @GetMapping("/{id}/items")
     public Result<?> getOrderItems(@PathVariable Long id) {
-        return Result.success(orderService.getOrderItems(id));
+        return Result.success(orderQueryService.getOrderItems(id));
     }
 
     /**
@@ -45,11 +45,11 @@ public class OrderController {
      */
     @PostMapping("/list")
     public Result<?> list(@Valid @RequestBody AdminOrderListRequest req) {
-        List<OrderStatusResponse> orders = orderService.getAdminOrders(
+        List<OrderStatusResponse> orders = orderQueryService.getAdminOrders(
                 req.getPage(), req.getSize(),
                 req.getShowId(), req.getSessionId(), req.getOrderNo(),
                 req.getStatus(), req.getStartTime(), req.getEndTime());
-        int total = orderService.countAdminOrders(
+        int total = orderQueryService.countAdminOrders(
                 req.getShowId(), req.getSessionId(), req.getOrderNo(),
                 req.getStatus(), req.getStartTime(), req.getEndTime());
         return Result.success(Map.of("total", total, "list", orders));

@@ -4,7 +4,7 @@ import com.ticket.admin.dto.SessionCreateRequest;
 import com.ticket.admin.dto.SessionUpdateRequest;
 import com.ticket.common.result.Result;
 import com.ticket.core.domain.entity.ShowSession;
-import com.ticket.core.service.ShowService;
+import com.ticket.core.service.SessionService;
 import org.springframework.web.bind.annotation.*;
 
 import javax.validation.Valid;
@@ -13,10 +13,10 @@ import javax.validation.Valid;
 @RequestMapping("/api/admin/session")
 public class SessionController {
 
-    private final ShowService showService;
+    private final SessionService sessionService;
 
-    public SessionController(ShowService showService) {
-        this.showService = showService;
+    public SessionController(SessionService sessionService) {
+        this.sessionService = sessionService;
     }
 
     @PostMapping("/create")
@@ -29,14 +29,12 @@ public class SessionController {
         session.setEndTime(req.getEndTime());
         session.setLimitPerUser(req.getLimitPerUser());
         session.setExtend(req.getExtend());
-        // status 后端固定为 0；totalSeats / rowCount / colCount 由 service 从 Room 自动计算
-        return Result.success(showService.createSession(session));
+        return Result.success(sessionService.create(session));
     }
 
     @PutMapping("/update")
     public Result<ShowSession> updateSession(@Valid @RequestBody SessionUpdateRequest req) {
-        // 先读出现有记录，仅覆盖允许更新的字段，防止把后端管理的字段(status/totalSeats/rowCount/colCount/showId/roomId)清空
-        ShowSession existing = showService.getSession(req.getId());
+        ShowSession existing = sessionService.getById(req.getId());
         if (existing == null) {
             return Result.fail(404, "场次不存在");
         }
@@ -45,17 +43,17 @@ public class SessionController {
         existing.setEndTime(req.getEndTime());
         existing.setLimitPerUser(req.getLimitPerUser());
         existing.setExtend(req.getExtend());
-        return Result.success(showService.updateSession(existing));
+        return Result.success(sessionService.update(existing));
     }
 
     @GetMapping("/{id}")
     public Result<ShowSession> getSession(@PathVariable Long id) {
-        return Result.success(showService.getSession(id));
+        return Result.success(sessionService.getById(id));
     }
 
     @GetMapping("/list")
     public Result<?> listSessions(@RequestParam Long showId) {
-        return Result.success(showService.listSessions(showId));
+        return Result.success(sessionService.listByShowId(showId));
     }
 
     /**
@@ -63,7 +61,7 @@ public class SessionController {
      */
     @PutMapping("/{sessionId}/publish")
     public Result<?> publishSession(@PathVariable Long sessionId) {
-        showService.publishSession(sessionId);
+        sessionService.publish(sessionId);
         return Result.success("场次已发布开售");
     }
 }

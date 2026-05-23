@@ -8,10 +8,11 @@ import com.ticket.core.domain.dto.OrderStatusResponse;
 import com.ticket.core.domain.entity.Order;
 import com.ticket.common.annotation.LimitType;
 import com.ticket.common.annotation.RateLimit;
-import com.ticket.core.service.OrderService;
+import com.ticket.core.service.OrderCommandService;
+import com.ticket.core.service.OrderQueryService;
 import com.ticket.core.service.PurchaseLimitService;
 import com.ticket.core.service.SeatInventoryService;
-import com.ticket.core.service.ShowService;
+import com.ticket.core.service.SessionService;
 import lombok.extern.slf4j.Slf4j;
 import com.ticket.user.dto.CancelOrderRequest;
 import com.ticket.user.dto.OrderListRequest;
@@ -31,21 +32,24 @@ import java.util.Map;
 @RequestMapping("/api/order")
 public class OrderController {
 
-    private final ShowService showService;
+    private final SessionService sessionService;
     private final PurchaseLimitService purchaseLimitService;
     private final SeatInventoryService inventoryService;
-    private final OrderService orderService;
+    private final OrderCommandService orderCommandService;
+    private final OrderQueryService orderQueryService;
 
     private static final long SEAT_LOCK_TTL = 300L;
 
-    public OrderController(ShowService showService,
+    public OrderController(SessionService sessionService,
                            PurchaseLimitService purchaseLimitService,
                            SeatInventoryService inventoryService,
-                           OrderService orderService) {
-        this.showService = showService;
+                           OrderCommandService orderCommandService,
+                           OrderQueryService orderQueryService) {
+        this.sessionService = sessionService;
         this.purchaseLimitService = purchaseLimitService;
         this.inventoryService = inventoryService;
-        this.orderService = orderService;
+        this.orderCommandService = orderCommandService;
+        this.orderQueryService = orderQueryService;
     }
 
     @RateLimit(type = LimitType.BLACKLIST)
@@ -56,7 +60,7 @@ public class OrderController {
     public Result<OrderStatusResponse> submit(@Valid @RequestBody SubmitOrderRequest req) {
         Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
 
-        var session = showService.getSession(req.getSessionId());
+        var session = sessionService.getById(req.getSessionId());
         if (session == null) {
             throw new BusinessException(ErrorCode.PARAM_ERROR, "场次不存在");
         }
@@ -83,14 +87,14 @@ public class OrderController {
         orderReq.setSessionId(req.getSessionId());
         orderReq.setSeatIds(req.getSeatIds());
 
-        Order order = orderService.createOrder(orderReq);
-        return Result.success(orderService.buildStatusResponse(order));
+        Order order = orderCommandService.createOrder(orderReq);
+        return Result.success(orderQueryService.buildStatusResponse(order));
     }
 
     @PostMapping("/cancel")
     public Result<Void> cancel(@Valid @RequestBody CancelOrderRequest req) {
         Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
-        Order order = orderService.getByOrderNo(req.getOrderNo());
+        Order order = orderQueryService.getByOrderNo(req.getOrderNo());
         if (order == null) {
             throw new BusinessException(ErrorCode.ORDER_NOT_FOUND);
         }
@@ -99,10 +103,10 @@ public class OrderController {
         }
         if (order.getStatus() == 0) {
             // 未支付：直接同步取消，立即释放座位
-            orderService.cancelOrder(order.getId());
+            orderCommandService.cancelOrder(order.getId());
         } else if (order.getStatus() == 1 || order.getStatus() == 5) {
             // 已支付 或 部分退款：发起退款，退还剩余未使用票券，异步通过 MQ 处理
-            orderService.initiateRefund(order.getId());
+            orderCommandService.initiateRefund(order.getId());
         } else {
             throw new BusinessException(ErrorCode.PARAM_ERROR, "当前订单状态不可取消");
         }
@@ -112,29 +116,29 @@ public class OrderController {
     @GetMapping("/orderDetails")
     public Result<OrderStatusResponse> detail(@RequestParam String orderNo) {
         Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
-        Order order = orderService.getByOrderNo(orderNo);
+        Order order = orderQueryService.getByOrderNo(orderNo);
         if (order == null) {
             throw new BusinessException(ErrorCode.PARAM_ERROR, "订单不存在");
         }
         if (!order.getUserId().equals(userId)) {
             throw new BusinessException(ErrorCode.FORBIDDEN);
         }
-        return Result.success(orderService.buildStatusResponse(order));
+        return Result.success(orderQueryService.buildStatusResponse(order));
     }
 
     @PostMapping("/refundTicket")
     public Result<Void> refundTicket(@Valid @RequestBody RefundTicketRequest req) {
         Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
-        orderService.initiateTicketRefund(req.getOrderNo(), req.getTicketNo(), userId);
+        orderCommandService.initiateTicketRefund(req.getOrderNo(), req.getTicketNo(), userId);
         return Result.success(null);
     }
 
     @PostMapping("/list")
     public Result<?> list(@Valid @RequestBody OrderListRequest req) {
         Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
-        List<OrderStatusResponse> orders = orderService.getUserOrders(
+        List<OrderStatusResponse> orders = orderQueryService.getUserOrders(
                 userId, req.getPage(), req.getSize(), req.getStatus(), req.getStartTime(), req.getEndTime());
-        int total = orderService.countUserOrders(userId, req.getStatus(), req.getStartTime(), req.getEndTime());
+        int total = orderQueryService.countUserOrders(userId, req.getStatus(), req.getStartTime(), req.getEndTime());
         return Result.success(Map.of("total", total, "list", orders));
     }
 }
