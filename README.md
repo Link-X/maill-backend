@@ -20,6 +20,8 @@ A high-concurrency ticket booking backend targeting thousands to tens of thousan
 
 - **Show Management** — CRUD for shows / sessions / seats; admin warms up seat inventory into Redis with one click
 - **Category Management** — Dedicated `category` table + admin CRUD; shows link via `categoryId`, list/detail endpoints LEFT JOIN to return `categoryName` in a single call; user-side `/api/category/list` powers the home-page tabs
+- **City & Address** — `city` table seeded with 30 major cities (GB/T administrative codes); shows include `cityCode` + `address`; list / detail / order / session-detail endpoints all return `cityName`; user-side home page can switch by city
+- **Extend Fields** — `show` / `show_session` expose an `extend JSON` column so product can add display-only attributes without ALTER TABLE; conventions live in the frontend doc (not used in WHERE / indexes)
 - **Venue Templates** — Define seat layout and default prices once on a room; sessions created with a `roomId` auto-copy all seats and price areas instantly; `/room/template` endpoint returns room + seats + areas in a single call
 - **Image Upload** — Admin `/upload/image` endpoint backed by MinIO object storage (S3-compatible) for show posters, venue maps, etc.; returns an externally accessible URL
 - **Booking Core** — Lua atomic purchase-limit check + Redis batch seat lock (full rollback on any failure) + synchronous order creation
@@ -132,25 +134,26 @@ Creates 1 venue template (20 × 20 seats, VIP front section), 5 shows, 15 sessio
 | POST | `/api/auth/register` | Register | ✗ |
 | POST | `/api/auth/login` | Login, returns JWT | ✗ |
 
-#### Categories (home-page tabs)
+#### Categories / Cities (home-page tabs)
 
 | Method | Path | Description | Auth |
 |--------|------|-------------|:----:|
 | GET  | `/api/category/list` | Enabled categories, sorted by `sort` | ✗ |
+| GET  | `/api/city/list` | Enabled cities, sorted by `sort` (30 major cities seeded) | ✗ |
 
 #### Shows
 
 | Method | Path | Description | Auth |
 |--------|------|-------------|:----:|
-| POST | `/api/show/list` | Published show list (paginated, filterable by name / categoryId / venue; each item is a ShowVO with `categoryName`) | ✗ |
-| GET  | `/api/show/{id}` | Show detail (ShowVO with `categoryName`) | ✗ |
+| POST | `/api/show/list` | Published show list (paginated; filter by name / categoryId / cityCode / venue; each item is a ShowVO with `categoryName` / `cityName` / `address` / `extend`) | ✗ |
+| GET  | `/api/show/{id}` | Show detail (ShowVO with `categoryName` / `cityName` / `address` / `extend`) | ✗ |
 
 #### Sessions
 
 | Method | Path | Description | Auth |
 |--------|------|-------------|:----:|
 | POST | `/api/session/list` | Session list (paginated, filterable by status / startTime / endTime) | ✗ |
-| POST | `/api/session/detail` | Session seat map (area prices + real-time availability) | ✗ |
+| POST | `/api/session/detail` | Session seat map (area prices + real-time availability + show / city / address info) | ✗ |
 
 #### Orders
 
@@ -158,7 +161,7 @@ Creates 1 venue template (20 × 20 seats, VIP front section), 5 shows, 15 sessio
 |--------|------|-------------|:----:|
 | POST | `/api/order/submit` | Lock seats + create order, returns full order immediately | ✓ |
 | POST | `/api/order/cancel` | Cancel order (unpaid: sync cancel; paid / partial-refund: initiate refund) | ✓ |
-| GET  | `/api/order/orderDetails` | Order detail (owner only) | ✓ |
+| GET  | `/api/order/orderDetails` | Order detail (owner only; includes showCityName / showAddress) | ✓ |
 | POST | `/api/order/refundTicket` | Refund a single ticket (works on paid or partially-refunded orders) | ✓ |
 | POST | `/api/order/list` | My orders (paginated, filterable by status / date range) | ✓ |
 
@@ -184,6 +187,14 @@ Dedicated `category` table; shows link via `categoryId`. Deleting a category tha
 | POST   | `/api/admin/category/create` | Create category (`name` unique, duplicate returns 1013) |
 | PUT    | `/api/admin/category/update` | Update category (`status=0` hides it from the user-side list) |
 | DELETE | `/api/admin/category/{id}` | Delete (returns 1012 when referenced by any show) |
+
+#### Cities (read-only)
+
+Seeded by `schema.sql` with 30 major cities; no admin write endpoint.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/admin/city/list?status=&keyword=` | Source for the city dropdown when creating a show |
 
 #### Venue Templates (Room Management)
 
@@ -235,9 +246,10 @@ Define the seat layout and default prices on a room once; specifying `roomId` wh
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET  | `/api/admin/order/{id}` | Order detail |
-| GET  | `/api/admin/order/query` | Order query |
-| GET  | `/api/admin/order/{id}/items` | Order line items |
+| GET  | `/api/admin/order/{id}` | Order detail (raw Order entity) |
+| GET  | `/api/admin/order/query?orderNo=` | Lookup by order number |
+| GET  | `/api/admin/order/{id}/items` | Order line items (with seat info) |
+| POST | `/api/admin/order/list` | **Paginated order list** with filters: showId / sessionId / orderNo / status / time range; same response shape as the user-side list (includes show / city / tickets) |
 | GET  | `/api/admin/monitor/dashboard?sessionId=` | Real-time seat counts (total / available / sold) |
 
 ---
@@ -344,15 +356,16 @@ public Result<?> submit(...) { }
 
 ## Database Design
 
-14 tables in total:
+15 tables in total:
 
 | Table | Description |
 |-------|-------------|
 | `user` | Users, BCrypt passwords |
 | `user_role` | Roles: USER / ADMIN |
 | `category` | Show categories (`name` unique; `sort`/`status` for ordering and enable/disable; `idx_status_sort` index) |
-| `show` | Shows; `category_id` links the category; `idx_name` / `idx_venue` / `idx_category_id` for search and filtering |
-| `show_session` | Sessions; `room_id` links the venue template; `limit_per_user` cap |
+| `city` | Cities (GB/T administrative codes, `code` unique); 30 major cities seeded, no write endpoint |
+| `show` | Shows; `category_id` / `city_code` link to category and city; `address` for the full street address; `extend` JSON for ad-hoc display fields; `idx_name` / `idx_venue` / `idx_category_id` / `idx_city_code` for search and filtering |
+| `show_session` | Sessions; `room_id` links the venue template; `limit_per_user` cap; `extend` JSON for ad-hoc display fields |
 | `seat` | Seat master table; real-time inventory lives in Redis, `status` synced async after payment |
 | `seat_area` | Per-session seat price areas |
 | `order` | Orders; index `idx_status_expire` |
