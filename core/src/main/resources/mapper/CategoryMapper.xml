@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.ticket.core.mapper.CategoryMapper">
+
+    <resultMap id="CategoryResultMap" type="com.ticket.core.domain.entity.Category">
+        <id     column="id"          property="id"/>
+        <result column="name"        property="name"/>
+        <result column="sort"        property="sort"/>
+        <result column="icon"        property="icon"/>
+        <result column="status"      property="status"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+
+    <insert id="insert" parameterType="com.ticket.core.domain.entity.Category"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO category (name, sort, icon, status, create_time, update_time)
+        VALUES (#{name}, #{sort}, #{icon}, #{status}, #{createTime}, #{updateTime})
+    </insert>
+
+    <update id="update" parameterType="com.ticket.core.domain.entity.Category">
+        UPDATE category
+        SET name        = #{name},
+            sort        = #{sort},
+            icon        = #{icon},
+            status      = #{status},
+            update_time = #{updateTime}
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteById">
+        DELETE FROM category WHERE id = #{id}
+    </delete>
+
+    <select id="selectById" resultMap="CategoryResultMap">
+        SELECT id, name, sort, icon, status, create_time, update_time
+        FROM category WHERE id = #{id}
+    </select>
+
+    <select id="selectByName" resultMap="CategoryResultMap">
+        SELECT id, name, sort, icon, status, create_time, update_time
+        FROM category WHERE name = #{name}
+    </select>
+
+    <select id="selectByCondition" resultMap="CategoryResultMap">
+        SELECT id, name, sort, icon, status, create_time, update_time
+        FROM category
+        <where>
+            <if test="status != null">AND status = #{status}</if>
+            <if test="keyword != null and keyword != ''">
+                AND name LIKE CONCAT(#{keyword}, '%')
+            </if>
+        </where>
+        ORDER BY sort ASC, id ASC
+    </select>
+
+    <select id="selectEnabled" resultMap="CategoryResultMap">
+        SELECT id, name, sort, icon, status, create_time, update_time
+        FROM category
+        WHERE status = 1
+        ORDER BY sort ASC, id ASC
+    </select>
+
+    <select id="countShowsByCategoryId" resultType="int">
+        SELECT COUNT(*) FROM `show` WHERE category_id = #{id}
+    </select>
+
+</mapper>

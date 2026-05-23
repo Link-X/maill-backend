@@ -4,17 +4,15 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 /**
- * 演出实体类
+ * 演出分类
  */
 @Data
-public class Show {
+public class Category {
     private Long id;
     private String name;
-    private String description;
-    /** 关联 category.id */
-    private Long categoryId;
-    private String posterUrl;
-    private String venue;
+    private Integer sort;
+    private String icon;
+    /** 0=禁用 1=启用 */
     private Integer status;
     private LocalDateTime createTime;
     private LocalDateTime updateTime;

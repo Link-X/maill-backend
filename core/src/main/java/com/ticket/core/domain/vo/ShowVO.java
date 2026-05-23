@@ -1,18 +1,18 @@
-package com.ticket.core.domain.entity;
+package com.ticket.core.domain.vo;
 
 import lombok.Data;
 import java.time.LocalDateTime;
 
 /**
- * 演出实体类
+ * 演出展示 VO：Show 字段 + 冗余 categoryName，避免前端再查一次分类表
  */
 @Data
-public class Show {
+public class ShowVO {
     private Long id;
     private String name;
     private String description;
-    /** 关联 category.id */
     private Long categoryId;
+    private String categoryName;
     private String posterUrl;
     private String venue;
     private Integer status;

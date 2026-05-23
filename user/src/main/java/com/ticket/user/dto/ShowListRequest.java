@@ -19,6 +19,6 @@ public class ShowListRequest {
     private Integer size;
 
     private String name;
-    private String category;
+    private Long categoryId;
     private String venue;
 }

@@ -19,6 +19,7 @@
 @token = eyJhbGciOiJIUzM4NCJ9.eyJzdWIiOiI3MDQ5MTQxNDM1NjQwMDk0NzIiLCJ1c2VybmFtZSI6InhkYiIsImlhdCI6MTc3NzUyMzgyOCwiZXhwIjoxNzgwMTE1ODI4fQ.E8dwttWo3o9-tX43LcQAbOYFAQP99xHzFidmXmakJlPHTix__HEv7caOlAYCkFJe
 
 # 后续步骤自动依赖的 ID（从响应中取，手动填入）
+@categoryId = <从 category/create 响应 data.id 复制>
 @roomId    = <从 room/create 响应 data.id 复制>
 @showId    = 2
 @sessionId = 2
@@ -144,18 +145,65 @@ Content-Type: image/jpeg
 ------WebKitFormBoundary--
 
 ###
+# ──────────── Admin 演出分类管理 ────────────
+
+###
+# Step 5.6: 创建演出分类 (Admin) → 复制 data.id 到 @categoryId
+# - name 必填且全表唯一，重复时返回 1013 CATEGORY_NAME_DUPLICATED
+# - sort/status 可选，默认 sort=0, status=1
+# - icon 可选；常配合 /upload/image 上传得到 URL
+# 预期: {"code":200,"data":{"id":1,"name":"脱口秀","sort":0,"status":1,...}}
+POST {{adminHost}}/api/admin/category/create
+Content-Type: application/json
+
+{
+  "name": "脱口秀",
+  "sort": 10,
+  "icon": "https://example.com/icons/talk.png",
+  "status": 1
+}
+
+###
+# Step 5.7: 更新分类 (Admin)
+# 改名时同样校验重名（排除自身）；status 改为 0 即"禁用"，用户端 /api/category/list 不再返回
+PUT {{adminHost}}/api/admin/category/update
+Content-Type: application/json
+
+{
+  "id": {{categoryId}},
+  "name": "脱口秀",
+  "sort": 5,
+  "icon": "https://example.com/icons/talk-v2.png",
+  "status": 1
+}
+
+###
+# Step 5.8: 管理端分类列表 (Admin)，支持按 status 和 keyword（name 前缀模糊）筛选
+# 预期: {"code":200,"data":[{"id":1,"name":"脱口秀",...}]}
+GET {{adminHost}}/api/admin/category/list
+
+###
+GET {{adminHost}}/api/admin/category/list?status=1&keyword=脱口
+
+###
+# Step 5.9: 删除分类 (Admin)
+# 被任何演出引用时返回 1012 CATEGORY_IN_USE，msg 形如"分类被 2 个演出引用，无法删除"
+# DELETE {{adminHost}}/api/admin/category/1
+
+###
 # ──────────── Admin 演出/场次管理 ────────────
 
 ###
 # Step 6: 创建演出 (Admin) → 复制 data.id 到 @showId
-# 预期: {"code":200,"data":{"id":1,"name":"大冬天脱口秀",...}}
+# 注意：现在使用 categoryId（关联 category 表 id），不再使用 category 字符串
+# 预期: {"code":200,"data":{"id":1,"name":"大冬天脱口秀","categoryId":1,...}}
 POST {{adminHost}}/api/admin/show/create
 Content-Type: application/json
 
 {
   "name": "大冬天脱口秀",
   "description": "3028 年巡回脱口秀",
-  "category": "脱口秀",
+  "categoryId": {{categoryId}},
   "venue": "乡下体育场",
   "posterUrl": "https://example.com/poster.jpg"
 }
@@ -170,7 +218,7 @@ Content-Type: application/json
   "id": {{showId}},
   "name": "大冬天脱口秀（已更新）",
   "description": "2036 年巡回脱口秀",
-  "category": "脱口秀",
+  "categoryId": {{categoryId}},
   "venue": "乡下体育场",
   "posterUrl": "https://example.com/poster.jpg"
 }
@@ -276,19 +324,28 @@ POST {{adminHost}}/api/admin/seat/warmup/{{sessionId}}
 # ──────────── User 浏览 ────────────
 
 ###
-# Step 12: 用户端查看上架演出列表（分页，支持 name/category/venue 筛选）
-# 预期: {"code":200,"data":{"total":1,"list":[{"id":1,"name":"大冬天脱口秀",...}]}}
+# Step 11.5: 用户端获取启用的分类列表（供首页 tabs 使用）
+# 仅返回 status=1，按 sort,id 排序
+# 预期: {"code":200,"data":[{"id":1,"name":"脱口秀","sort":5,"icon":"...","status":1}]}
+GET {{userHost}}/api/category/list
+
+###
+# Step 12: 用户端查看上架演出列表（分页，支持 name/categoryId/venue 筛选）
+# - name / venue 走前缀模糊匹配，categoryId 精确匹配
+# - 返回的每条 item 是 ShowVO，自带 categoryName，前端无需再 join
+# 预期: {"code":200,"data":{"total":1,"list":[{"id":1,"name":"大冬天脱口秀","categoryId":1,"categoryName":"脱口秀",...}]}}
 POST {{userHost}}/api/show/list
 Content-Type: application/json
 
 {
   "page": 1,
-  "size": 10
+  "size": 10,
+  "categoryId": {{categoryId}}
 }
 
 ###
-# Step 12.1: 查看演出详情
-# 预期: {"code":200,"data":{"id":1,"name":"大冬天脱口秀",...}}
+# Step 12.1: 查看演出详情（返回 ShowVO，含 categoryName）
+# 预期: {"code":200,"data":{"id":1,"name":"大冬天脱口秀","categoryId":1,"categoryName":"脱口秀",...}}
 GET {{userHost}}/api/show/{{showId}}
 
 ###

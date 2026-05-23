@@ -25,7 +25,9 @@ public enum ErrorCode {
     SHOW_NOT_FOUND(1008, "演出不存在"),
     RATE_LIMIT_EXCEEDED(1009, "系统繁忙，请稍后重试"),
     REFUND_TOO_CLOSE_TO_START(1010, "距演出开始不足1天，无法退款"),
-    REFUND_ALL_TICKETS_USED(1011, "所有票券均已使用，无法退款");
+    REFUND_ALL_TICKETS_USED(1011, "所有票券均已使用，无法退款"),
+    CATEGORY_IN_USE(1012, "分类已被演出引用，无法删除"),
+    CATEGORY_NAME_DUPLICATED(1013, "分类名已存在");
 
     private final int code;
     private final String message;

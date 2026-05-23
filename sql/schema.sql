@@ -29,20 +29,41 @@ CREATE TABLE IF NOT EXISTS user_role (
     KEY idx_user_id (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户角色表';
 
--- 3. 演出表
--- `show` 是 MySQL 保留字，必须使用反引号
-CREATE TABLE IF NOT EXISTS `show` (
-    id BIGINT NOT NULL AUTO_INCREMENT,
-    name VARCHAR(128) NOT NULL COMMENT '演出名称',
-    description TEXT COMMENT '演出描述',
-    category VARCHAR(64) DEFAULT NULL COMMENT '分类: 演唱会/话剧/体育等',
-    poster_url VARCHAR(512) DEFAULT NULL COMMENT '海报URL',
-    venue VARCHAR(256) DEFAULT NULL COMMENT '演出场馆',
-    status INT NOT NULL DEFAULT 0 COMMENT '状态: 0=草稿, 1=已上架, 2=已下架',
-    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+-- 3. 演出分类表
+CREATE TABLE IF NOT EXISTS category (
+    id          BIGINT       NOT NULL AUTO_INCREMENT,
+    name        VARCHAR(64)  NOT NULL COMMENT '分类名',
+    sort        INT          NOT NULL DEFAULT 0 COMMENT '排序，小靠前',
+    icon        VARCHAR(255)          DEFAULT NULL COMMENT '可选图标 URL',
+    status      TINYINT      NOT NULL DEFAULT 1 COMMENT '0=禁用 1=启用',
+    create_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
-    KEY idx_status_create_time (status, create_time) COMMENT '用于演出列表按状态分页查询，避免 filesort'
+    UNIQUE KEY uk_name (name),
+    KEY idx_status_sort (status, sort) COMMENT '用户端列表按 status=1 过滤后按 sort 排序'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='演出分类表';
+
+-- 4. 演出表
+-- `show` 是 MySQL 保留字，必须使用反引号
+-- 索引设计:
+--   idx_status_create_time : 按状态分页主用
+--   idx_name / idx_venue   : 前缀模糊搜索走 B-Tree (LIKE 'xxx%')
+--   idx_category_id        : 按分类筛选（前端分类 tabs）
+CREATE TABLE IF NOT EXISTS `show` (
+    id          BIGINT       NOT NULL AUTO_INCREMENT,
+    name        VARCHAR(128) NOT NULL COMMENT '演出名称',
+    description TEXT                  COMMENT '演出描述',
+    category_id BIGINT                DEFAULT NULL COMMENT '关联 category.id',
+    poster_url  VARCHAR(512)          DEFAULT NULL COMMENT '海报URL',
+    venue       VARCHAR(256)          DEFAULT NULL COMMENT '演出场馆',
+    status      INT          NOT NULL DEFAULT 0 COMMENT '状态: 0=草稿, 1=已上架, 2=已下架',
+    create_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_status_create_time (status, create_time) COMMENT '用于演出列表按状态分页查询，避免 filesort',
+    KEY idx_name        (name)        COMMENT '搜索: name LIKE xxx%',
+    KEY idx_venue       (venue)       COMMENT '搜索: venue LIKE xxx%',
+    KEY idx_category_id (category_id) COMMENT '按分类筛选'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='演出表';
 
 -- 4. 演出场次表

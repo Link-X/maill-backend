@@ -21,14 +21,14 @@ public class ShowController {
 
     @PostMapping("/list")
     public Result<?> listShows(@RequestBody ShowListRequest req) {
-        var list = showService.listShowsPaged(req.getName(), req.getCategory(), req.getVenue(), req.getPage(), req.getSize());
-        var total = showService.countShows(req.getName(), req.getCategory(), req.getVenue());
+        var list = showService.listShowsPaged(req.getName(), req.getCategoryId(), req.getVenue(), req.getPage(), req.getSize());
+        var total = showService.countShows(req.getName(), req.getCategoryId(), req.getVenue());
         return Result.success(Map.of("total", total, "list", list));
     }
 
     @GetMapping("/{id}")
     public Result<?> getShow(@PathVariable Long id) {
-        return Result.success(showService.getShow(id));
+        return Result.success(showService.getShowVO(id));
     }
 
 

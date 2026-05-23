@@ -19,6 +19,7 @@
 ## 功能特性
 
 - **演出管理**：演出 / 场次 / 座位 CRUD；管理端一键预热座位库存到 Redis
+- **分类管理**：独立的 `category` 表 + 管理端 CRUD；演出通过 `categoryId` 关联分类，列表/详情通过 LEFT JOIN 一次返回 `categoryName`，前端首页 tabs 直连 `/api/category/list`
 - **场地模板**：在 Room 上一次性定义座位布局和默认价格；创建场次时传入 `roomId`，座位和价格区域自动复制；提供 `/room/template` 聚合接口一次性返回 room + seats + areas
 - **图片上传**：管理端 `/upload/image` 直连 MinIO 对象存储（S3 兼容），支持演出海报、场地图等场景，返回外链 URL
 - **抢票核心**：Lua 原子限购检查 + Redis 批量锁座（任一失败全量回滚）+ 同步建单
@@ -131,12 +132,18 @@ bash docs/seed-data.sh
 | POST | `/api/auth/register` | 注册 | ✗ |
 | POST | `/api/auth/login` | 登录，返回 JWT | ✗ |
 
+#### 分类（首页 tabs）
+
+| 方法 | 路径 | 说明 | 登录 |
+|------|------|------|:----:|
+| GET  | `/api/category/list` | 启用的分类列表，按 sort 排序 | ✗ |
+
 #### 演出
 
 | 方法 | 路径 | 说明 | 登录 |
 |------|------|------|:----:|
-| POST | `/api/show/list` | 演出列表（分页，支持 name / category / venue 筛选） | ✗ |
-| GET  | `/api/show/{id}` | 演出详情 | ✗ |
+| POST | `/api/show/list` | 演出列表（分页，支持 name / categoryId / venue 筛选；item 返回 ShowVO，含 categoryName） | ✗ |
+| GET  | `/api/show/{id}` | 演出详情（ShowVO，含 categoryName） | ✗ |
 
 #### 场次
 
@@ -166,6 +173,17 @@ bash docs/seed-data.sh
 ---
 
 ### 管理端（:8081）
+
+#### 演出分类管理
+
+独立的 `category` 表，演出通过 `categoryId` 关联；删除被引用的分类会返回 `1012 CATEGORY_IN_USE`。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET    | `/api/admin/category/list?status=&keyword=` | 分类列表，可按 status / keyword 前缀筛选 |
+| POST   | `/api/admin/category/create` | 新建分类（name 唯一，重名返回 1013） |
+| PUT    | `/api/admin/category/update` | 更新分类（status=0 即"禁用"，用户端列表不返回） |
+| DELETE | `/api/admin/category/{id}` | 删除分类（被引用时返回 1012） |
 
 #### 场地模板（Room 管理）
 
@@ -324,13 +342,14 @@ public Result<?> submit(...) { }
 
 ## 数据库设计
 
-共 13 张表：
+共 14 张表：
 
 | 表名 | 说明 |
 |------|------|
 | `user` | 用户，BCrypt 密码 |
 | `user_role` | 用户角色（USER / ADMIN） |
-| `show` | 演出 |
+| `category` | 演出分类（name 唯一；sort/status 排序与启用控制；含 idx_status_sort 索引） |
+| `show` | 演出；`category_id` 关联分类；含 `idx_name` / `idx_venue` / `idx_category_id` 搜索/筛选索引 |
 | `show_session` | 场次；`room_id` 关联场地模板；含限购数 `limit_per_user` |
 | `seat` | 座位底表，实时库存由 Redis 管理，支付后异步同步 status |
 | `seat_area` | 场次座位价格区域 |

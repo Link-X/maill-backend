@@ -19,6 +19,7 @@ A high-concurrency ticket booking backend targeting thousands to tens of thousan
 ## Features
 
 - **Show Management** — CRUD for shows / sessions / seats; admin warms up seat inventory into Redis with one click
+- **Category Management** — Dedicated `category` table + admin CRUD; shows link via `categoryId`, list/detail endpoints LEFT JOIN to return `categoryName` in a single call; user-side `/api/category/list` powers the home-page tabs
 - **Venue Templates** — Define seat layout and default prices once on a room; sessions created with a `roomId` auto-copy all seats and price areas instantly; `/room/template` endpoint returns room + seats + areas in a single call
 - **Image Upload** — Admin `/upload/image` endpoint backed by MinIO object storage (S3-compatible) for show posters, venue maps, etc.; returns an externally accessible URL
 - **Booking Core** — Lua atomic purchase-limit check + Redis batch seat lock (full rollback on any failure) + synchronous order creation
@@ -131,12 +132,18 @@ Creates 1 venue template (20 × 20 seats, VIP front section), 5 shows, 15 sessio
 | POST | `/api/auth/register` | Register | ✗ |
 | POST | `/api/auth/login` | Login, returns JWT | ✗ |
 
+#### Categories (home-page tabs)
+
+| Method | Path | Description | Auth |
+|--------|------|-------------|:----:|
+| GET  | `/api/category/list` | Enabled categories, sorted by `sort` | ✗ |
+
 #### Shows
 
 | Method | Path | Description | Auth |
 |--------|------|-------------|:----:|
-| POST | `/api/show/list` | Published show list (paginated, filterable by name / category / venue) | ✗ |
-| GET  | `/api/show/{id}` | Show detail | ✗ |
+| POST | `/api/show/list` | Published show list (paginated, filterable by name / categoryId / venue; each item is a ShowVO with `categoryName`) | ✗ |
+| GET  | `/api/show/{id}` | Show detail (ShowVO with `categoryName`) | ✗ |
 
 #### Sessions
 
@@ -166,6 +173,17 @@ Creates 1 venue template (20 × 20 seats, VIP front section), 5 shows, 15 sessio
 ---
 
 ### Admin Service (:8081)
+
+#### Show Categories
+
+Dedicated `category` table; shows link via `categoryId`. Deleting a category that's still referenced returns `1012 CATEGORY_IN_USE`.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET    | `/api/admin/category/list?status=&keyword=` | List categories (optional status / keyword prefix filter) |
+| POST   | `/api/admin/category/create` | Create category (`name` unique, duplicate returns 1013) |
+| PUT    | `/api/admin/category/update` | Update category (`status=0` hides it from the user-side list) |
+| DELETE | `/api/admin/category/{id}` | Delete (returns 1012 when referenced by any show) |
 
 #### Venue Templates (Room Management)
 
@@ -326,13 +344,14 @@ public Result<?> submit(...) { }
 
 ## Database Design
 
-13 tables in total:
+14 tables in total:
 
 | Table | Description |
 |-------|-------------|
 | `user` | Users, BCrypt passwords |
 | `user_role` | Roles: USER / ADMIN |
-| `show` | Shows |
+| `category` | Show categories (`name` unique; `sort`/`status` for ordering and enable/disable; `idx_status_sort` index) |
+| `show` | Shows; `category_id` links the category; `idx_name` / `idx_venue` / `idx_category_id` for search and filtering |
 | `show_session` | Sessions; `room_id` links the venue template; `limit_per_user` cap |
 | `seat` | Seat master table; real-time inventory lives in Redis, `status` synced async after payment |
 | `seat_area` | Per-session seat price areas |

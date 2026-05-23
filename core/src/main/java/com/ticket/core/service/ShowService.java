@@ -5,6 +5,7 @@ import com.ticket.core.domain.entity.Seat;
 import com.ticket.core.domain.entity.SeatArea;
 import com.ticket.core.domain.entity.Show;
 import com.ticket.core.domain.entity.ShowSession;
+import com.ticket.core.domain.vo.ShowVO;
 import com.ticket.core.domain.vo.AreaPriceVO;
 import com.ticket.core.domain.vo.SeatColVO;
 import com.ticket.core.domain.vo.SeatRowVO;
@@ -54,8 +55,7 @@ public class ShowService {
     }
 
     /**
-     * 创建演出
-     * 设置 status=1，调用 mapper.insert，返回 show
+     * 创建演出（status 强制为 1，已上架）
      */
     public Show createShow(Show show) {
         LocalDateTime now = LocalDateTime.now();
@@ -66,20 +66,19 @@ public class ShowService {
         return show;
     }
 
-    /**
-     * 更新演出
-     * mapper.update，返回 selectById 查询结果
-     */
     public Show updateShow(Show show) {
+        show.setUpdateTime(LocalDateTime.now());
         showMapper.update(show);
         return showMapper.selectById(show.getId());
     }
 
-    /**
-     * 获取演出
-     */
     public Show getShow(Long id) {
         return showMapper.selectById(id);
+    }
+
+    /** 带 categoryName 的演出详情（用户端 / 列表展示用） */
+    public ShowVO getShowVO(Long id) {
+        return showMapper.selectVOById(id);
     }
 
     /**
@@ -93,13 +92,16 @@ public class ShowService {
         return showMapper.selectAll();
     }
 
-    public List<Show> listShowsPaged(String name, String category, String venue, int page, int size) {
+    /**
+     * 用户端分页列表（仅 status=1，带 categoryName）
+     */
+    public List<ShowVO> listShowsPaged(String name, Long categoryId, String venue, int page, int size) {
         int offset = (page - 1) * size;
-        return showMapper.selectByCondition(name, category, venue, 1, offset, size);
+        return showMapper.selectVOByCondition(name, categoryId, venue, 1, offset, size);
     }
 
-    public int countShows(String name, String category, String venue) {
-        return showMapper.countByCondition(name, category, venue, 1);
+    public int countShows(String name, Long categoryId, String venue) {
+        return showMapper.countByCondition(name, categoryId, venue, 1);
     }
 
     /**

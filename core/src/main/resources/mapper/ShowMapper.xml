@@ -4,31 +4,43 @@
 
 <mapper namespace="com.ticket.core.mapper.ShowMapper">
 
-    <!-- 演出结果映射 -->
+    <!-- 演出实体映射（管理端写入与基础查询使用） -->
     <resultMap id="ShowResultMap" type="com.ticket.core.domain.entity.Show">
-        <id column="id" property="id"/>
-        <result column="name" property="name"/>
+        <id     column="id"          property="id"/>
+        <result column="name"        property="name"/>
         <result column="description" property="description"/>
-        <result column="category" property="category"/>
-        <result column="poster_url" property="posterUrl"/>
-        <result column="venue" property="venue"/>
-        <result column="status" property="status"/>
+        <result column="category_id" property="categoryId"/>
+        <result column="poster_url"  property="posterUrl"/>
+        <result column="venue"       property="venue"/>
+        <result column="status"      property="status"/>
         <result column="create_time" property="createTime"/>
         <result column="update_time" property="updateTime"/>
     </resultMap>
 
-    <!-- 插入演出（自动生成主键） -->
+    <!-- ShowVO 映射：实体 + LEFT JOIN category 拿到的 category_name -->
+    <resultMap id="ShowVOResultMap" type="com.ticket.core.domain.vo.ShowVO">
+        <id     column="id"            property="id"/>
+        <result column="name"          property="name"/>
+        <result column="description"   property="description"/>
+        <result column="category_id"   property="categoryId"/>
+        <result column="category_name" property="categoryName"/>
+        <result column="poster_url"    property="posterUrl"/>
+        <result column="venue"         property="venue"/>
+        <result column="status"        property="status"/>
+        <result column="create_time"   property="createTime"/>
+        <result column="update_time"   property="updateTime"/>
+    </resultMap>
+
     <insert id="insert" parameterType="com.ticket.core.domain.entity.Show" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO `show` (name, description, category, poster_url, venue, status, create_time, update_time)
-        VALUES (#{name}, #{description}, #{category}, #{posterUrl}, #{venue}, #{status}, #{createTime}, #{updateTime})
+        INSERT INTO `show` (name, description, category_id, poster_url, venue, status, create_time, update_time)
+        VALUES (#{name}, #{description}, #{categoryId}, #{posterUrl}, #{venue}, #{status}, #{createTime}, #{updateTime})
     </insert>
 
-    <!-- 更新演出信息 -->
     <update id="update" parameterType="com.ticket.core.domain.entity.Show">
         UPDATE `show`
         SET name        = #{name},
             description = #{description},
-            category    = #{category},
+            category_id = #{categoryId},
             poster_url  = #{posterUrl},
             venue       = #{venue},
             status      = #{status},
@@ -36,58 +48,65 @@
         WHERE id = #{id}
     </update>
 
-    <!-- 根据 ID 查询演出 -->
     <select id="selectById" resultMap="ShowResultMap">
-        SELECT id, name, description, category, poster_url, venue, status, create_time, update_time
+        SELECT id, name, description, category_id, poster_url, venue, status, create_time, update_time
         FROM `show`
         WHERE id = #{id}
     </select>
 
-    <!-- 查询所有演出 -->
     <select id="selectAll" resultMap="ShowResultMap">
-        SELECT id, name, description, category, poster_url, venue, status, create_time, update_time
+        SELECT id, name, description, category_id, poster_url, venue, status, create_time, update_time
         FROM `show`
         ORDER BY create_time DESC
     </select>
 
-    <!-- 根据状态查询演出列表 -->
     <select id="selectByStatus" resultMap="ShowResultMap">
-        SELECT id, name, description, category, poster_url, venue, status, create_time, update_time
+        SELECT id, name, description, category_id, poster_url, venue, status, create_time, update_time
         FROM `show`
         WHERE status = #{status}
         ORDER BY create_time DESC
     </select>
 
-
-    <select id="selectByCondition" resultMap="ShowResultMap">
-        SELECT id, name, description, category, poster_url, venue, status, create_time, update_time
-        FROM `show`
+    <!--
+      VO 查询：LEFT JOIN category 取 categoryName。
+      name/venue 走前缀匹配可用 idx_name / idx_venue；categoryId 走 idx_category_id。
+    -->
+    <select id="selectVOByCondition" resultMap="ShowVOResultMap">
+        SELECT s.id, s.name, s.description, s.category_id, s.poster_url, s.venue,
+               s.status, s.create_time, s.update_time, c.name AS category_name
+        FROM `show` s
+        LEFT JOIN category c ON c.id = s.category_id
         <where>
-            <if test="status != null">AND status = #{status}</if>
-            <!-- 前缀匹配可走 B-Tree 索引,避免全表扫描;前端可在 keyword 后自动加 % 也可保持原样 -->
-            <if test="name != null and name != ''">AND name LIKE CONCAT(#{name}, '%')</if>
-            <if test="category != null and category != ''">AND category LIKE CONCAT(#{category}, '%')</if>
-            <if test="venue != null and venue != ''">AND venue LIKE CONCAT(#{venue}, '%')</if>
+            <if test="status != null">AND s.status = #{status}</if>
+            <if test="name != null and name != ''">AND s.name LIKE CONCAT(#{name}, '%')</if>
+            <if test="categoryId != null">AND s.category_id = #{categoryId}</if>
+            <if test="venue != null and venue != ''">AND s.venue LIKE CONCAT(#{venue}, '%')</if>
         </where>
-        ORDER BY create_time DESC
+        ORDER BY s.create_time DESC
         LIMIT #{size} OFFSET #{offset}
     </select>
 
     <select id="countByCondition" resultType="int">
         SELECT COUNT(*)
-        FROM `show`
+        FROM `show` s
         <where>
-            <if test="status != null">AND status = #{status}</if>
-            <!-- 前缀匹配可走 B-Tree 索引,避免全表扫描;前端可在 keyword 后自动加 % 也可保持原样 -->
-            <if test="name != null and name != ''">AND name LIKE CONCAT(#{name}, '%')</if>
-            <if test="category != null and category != ''">AND category LIKE CONCAT(#{category}, '%')</if>
-            <if test="venue != null and venue != ''">AND venue LIKE CONCAT(#{venue}, '%')</if>
+            <if test="status != null">AND s.status = #{status}</if>
+            <if test="name != null and name != ''">AND s.name LIKE CONCAT(#{name}, '%')</if>
+            <if test="categoryId != null">AND s.category_id = #{categoryId}</if>
+            <if test="venue != null and venue != ''">AND s.venue LIKE CONCAT(#{venue}, '%')</if>
         </where>
     </select>
 
-    <!-- 按 ID 列表批量查询演出（IN 查询，避免 N+1） -->
+    <select id="selectVOById" resultMap="ShowVOResultMap">
+        SELECT s.id, s.name, s.description, s.category_id, s.poster_url, s.venue,
+               s.status, s.create_time, s.update_time, c.name AS category_name
+        FROM `show` s
+        LEFT JOIN category c ON c.id = s.category_id
+        WHERE s.id = #{id}
+    </select>
+
     <select id="selectByIds" resultMap="ShowResultMap">
-        SELECT id, name, description, category, poster_url, venue, status, create_time, update_time
+        SELECT id, name, description, category_id, poster_url, venue, status, create_time, update_time
         FROM `show`
         WHERE id IN
         <foreach collection="ids" item="id" open="(" separator="," close=")">
