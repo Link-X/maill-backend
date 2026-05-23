@@ -5,6 +5,7 @@ import com.ticket.core.domain.entity.RoomArea;
 import com.ticket.core.domain.entity.RoomSeat;
 import com.ticket.core.domain.entity.Seat;
 import com.ticket.core.domain.entity.SeatArea;
+import com.ticket.core.domain.vo.RoomTemplateVO;
 import com.ticket.core.mapper.RoomAreaMapper;
 import com.ticket.core.mapper.RoomMapper;
 import com.ticket.core.mapper.RoomSeatMapper;
@@ -94,13 +95,28 @@ public class RoomService {
     }
 
     /**
+     * 聚合查询场地模板：基本信息 + 座位 + 价格区域，
+     * 前端拿到后按 areaId 在内存做 join 渲染座位图
+     */
+    public RoomTemplateVO getRoomTemplate(Long roomId) {
+        RoomTemplateVO vo = new RoomTemplateVO();
+        vo.setRoom(roomMapper.selectById(roomId));
+        vo.setSeats(roomSeatMapper.selectByRoomId(roomId));
+        vo.setAreas(roomAreaMapper.selectByRoomId(roomId));
+        return vo;
+    }
+
+    /**
      * 将场地模板复制到场次：
      * room_seat → seat（绑定 sessionId，情侣座二次修正 pairSeatId）
      * room_area → seat_area（绑定 sessionId，作为默认价格，管理员可后续覆盖）
+     *
+     * @return 实际复制的座位数（调用方用来回填 show_session.total_seats）
      */
     @Transactional
-    public void copyToSession(Long roomId, Long sessionId) {
+    public int copyToSession(Long roomId, Long sessionId) {
         List<RoomSeat> roomSeats = roomSeatMapper.selectByRoomId(roomId);
+        int seatCount = roomSeats.size();
         if (!roomSeats.isEmpty()) {
             LocalDateTime now = LocalDateTime.now();
 
@@ -153,5 +169,6 @@ public class RoomService {
             }).collect(Collectors.toList());
             seatAreaMapper.batchInsert(seatAreas);
         }
+        return seatCount;
     }
 }

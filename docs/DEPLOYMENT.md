@@ -11,6 +11,11 @@
 | `SNOWFLAKE_WORKER_ID` | Snowflake 节点编号 | 每个 Pod / 副本唯一（0-31 整数）；**prod 配置已去掉默认值，未注入时启动失败** | user / admin / payment |
 | `DB_PASS` | MySQL 密码 | 强密码 | user / admin / payment |
 | `REDIS_PASSWORD` | Redis 密码 | 强密码 | user / admin / payment |
+| `MINIO_ENDPOINT` | MinIO/S3 服务端点 | 如 `https://s3.your-domain.com`；admin 模块若启用图片上传则必填 | admin |
+| `MINIO_ACCESS_KEY` | MinIO/S3 访问 Key | 强随机串 | admin |
+| `MINIO_SECRET_KEY` | MinIO/S3 访问 Secret | 强随机串 | admin |
+| `MINIO_BUCKET` | 存储 bucket 名称 | 如 `ticket-prod` | admin |
+| `MINIO_PUBLIC_ENDPOINT` | 浏览器访问图片用的对外 host | CDN / 反向代理域名；未配置则回退到 `MINIO_ENDPOINT` | admin |
 
 ### 可选环境变量
 
@@ -21,6 +26,8 @@
 | `DB_USER` | MySQL 用户名 | `root` |
 | `REDIS_HOST` | Redis 主机 | `localhost` |
 | `REDIS_PORT` | Redis 端口 | `6379` |
+
+> **MinIO / 对象存储说明**：admin 模块的图片上传走 S3 兼容协议，本地开发使用 `docker-compose.yml` 内置的 MinIO 容器（9000 API / 9001 控制台，默认 `minioadmin / minioadmin123`）。生产环境可继续使用自建 MinIO，也可直接切到阿里云 OSS / AWS S3 —— 只需替换上面 5 个环境变量，业务代码不动。bucket 不存在时 admin 首次启动会自动创建并设置公共读策略，**生产环境如不希望对外公开访问，应改用签名 URL 并移除公共读策略**。
 
 ### 部署在反向代理后
 
@@ -71,6 +78,11 @@ services:
       DB_PASS: ${DB_PASS}
       REDIS_HOST: redis
       REDIS_PASSWORD: ${REDIS_PASSWORD}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}          # 如 https://s3.your-domain.com
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET: ${MINIO_BUCKET}              # 如 ticket-prod
+      MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT}  # CDN / 反向代理域名
       SPRING_PROFILES_ACTIVE: prod
 ```
 
@@ -156,6 +168,7 @@ curl -H "Authorization: Bearer $ADMIN_TOKEN" \
 - [ ] `ADMIN_INVITE_CODE` 已生成，未使用 `dev-admin-invite-please-change-in-prod`
 - [ ] 每个 Pod / 副本的 `SNOWFLAKE_WORKER_ID` 唯一（StatefulSet ordinal 或显式配置）
 - [ ] MySQL / Redis / RabbitMQ 不使用默认密码（`root123` / `guest`）
+- [ ] MinIO 不使用默认凭据（`minioadmin / minioadmin123`），且生产环境如不需要公开访问，已改为签名 URL 模式
 - [ ] 反向代理后部署时已配置 `rate-limit.trusted-proxies`
 - [ ] dev 配置文件（`application-dev.yml`）未被打包到生产镜像（或 `SPRING_PROFILES_ACTIVE=prod` 已设置）
-- [ ] RabbitMQ 管理端口（15672）未对公网暴露
+- [ ] RabbitMQ 管理端口（15672）、MinIO 控制台端口（9001）未对公网暴露

@@ -16,6 +16,18 @@ spring:
     port: 5672
     username: guest
     password: guest
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
+
+minio:
+  endpoint: http://localhost:9000
+  access-key: minioadmin
+  secret-key: minioadmin123
+  bucket: image
+  # 浏览器访问 URL 用的 host，本地与 endpoint 相同；线上可换 CDN 或反向代理域名
+  public-endpoint: http://localhost:9000
 
 snowflake:
   worker-id: 1

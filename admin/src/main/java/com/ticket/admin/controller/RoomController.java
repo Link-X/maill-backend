@@ -4,6 +4,7 @@ import com.ticket.admin.dto.RoomAreaSaveRequest;
 import com.ticket.admin.dto.RoomSeatBatchRequest;
 import com.ticket.common.result.Result;
 import com.ticket.core.domain.entity.Room;
+import com.ticket.core.domain.vo.RoomTemplateVO;
 import com.ticket.core.service.RoomService;
 import org.springframework.web.bind.annotation.*;
 
@@ -61,5 +62,14 @@ public class RoomController {
     @GetMapping("/area/list")
     public Result<?> listAreas(@RequestParam Long roomId) {
         return Result.success(roomService.listAreas(roomId));
+    }
+
+    /**
+     * 聚合查询：一次返回场地基本信息 + 座位模板 + 默认价格区域，
+     * 前端按 areaId 自行 join 渲染座位图，省一次往返
+     */
+    @GetMapping("/template")
+    public Result<RoomTemplateVO> getRoomTemplate(@RequestParam Long roomId) {
+        return Result.success(roomService.getRoomTemplate(roomId));
     }
 }

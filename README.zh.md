@@ -5,18 +5,22 @@
 ![MySQL](https://img.shields.io/badge/MySQL-8.x-orange)
 ![Redis](https://img.shields.io/badge/Redis-7.x-red)
 ![RabbitMQ](https://img.shields.io/badge/RabbitMQ-3.x-ff6600)
+![MinIO](https://img.shields.io/badge/MinIO-S3%20compatible-c72e49)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
 [English](README.md)
 
 面向千～万级并发场景的抢票系统后端，支持演出管理、选座购票、Redis 库存管理、订单超时自动取消、Mock 支付、入场核验及部分退款。采用 Maven 多模块架构，各模块独立部署。
 
+> **配套前端仓库**：[Link-X/maill-frontend](https://github.com/Link-X/maill-frontend)
+
 ---
 
 ## 功能特性
 
 - **演出管理**：演出 / 场次 / 座位 CRUD；管理端一键预热座位库存到 Redis
-- **场地模板**：在 Room 上一次性定义座位布局和默认价格；创建场次时传入 `roomId`，座位和价格区域自动复制
+- **场地模板**：在 Room 上一次性定义座位布局和默认价格；创建场次时传入 `roomId`，座位和价格区域自动复制；提供 `/room/template` 聚合接口一次性返回 room + seats + areas
+- **图片上传**：管理端 `/upload/image` 直连 MinIO 对象存储（S3 兼容），支持演出海报、场地图等场景，返回外链 URL
 - **抢票核心**：Lua 原子限购检查 + Redis 批量锁座（任一失败全量回滚）+ 同步建单
 - **防超卖**：Redis Set 原子扣库存，DB 层二次校验兜底
 - **订单超时**：RabbitMQ TTL + 死信队列，5 分钟精准触发取消并释放库存
@@ -38,6 +42,7 @@
 | 缓存 / 分布式锁 | Redis + Redisson | 7.x / 3.x |
 | 消息队列 | RabbitMQ | 3.x |
 | 数据库 | MySQL | 8.x |
+| 对象存储 | MinIO (S3 兼容) | 8.5.x SDK |
 | 鉴权 | Spring Security + JJWT | 0.12.x |
 | 构建 | Maven | — |
 
@@ -81,9 +86,10 @@ common ← core ← admin
 docker-compose up -d
 ```
 
-启动 MySQL 8（3306）、Redis 7（6379）、RabbitMQ 3（5672，管理界面 15672）。`sql/schema.sql` 首次运行自动执行。
+启动 MySQL 8（3306）、Redis 7（6379）、RabbitMQ 3（5672，管理界面 15672）、MinIO（9000 API / 9001 控制台）。`sql/schema.sql` 首次运行自动执行；MinIO 的 `image` bucket（在 `application-dev.yml` 的 `minio.bucket` 配置）由 admin 启动时自动创建并设为公共读，无需手动建。
 
 > **RabbitMQ 管理界面**：http://localhost:15672（guest / guest）
+> **MinIO 管理控制台**：http://localhost:9001（minioadmin / minioadmin123）
 
 ### 2. 编译
 
@@ -175,6 +181,13 @@ bash docs/seed-data.sh
 | GET  | `/api/admin/room/seat/list?roomId=` | 场地座位模板列表 |
 | POST | `/api/admin/room/area/save` | 保存场地默认价格区域（覆盖写） |
 | GET  | `/api/admin/room/area/list?roomId=` | 场地默认价格区域列表 |
+| GET  | `/api/admin/room/template?roomId=` | **聚合查询**：一次返回 room + seats + areas，前端可直接渲染座位图 |
+
+#### 文件上传
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/admin/upload/image` | 上传图片到 MinIO（multipart/form-data；表单字段 `file`；可选 `dir`，默认 `misc`），返回完整可访问 URL |
 
 #### 演出 & 场次
 
@@ -407,7 +420,7 @@ public Result<?> submit(...) { }
 - **通知服务**：接入短信 / 推送，实现 `notification.queue` 消费者
 - **微服务化**：admin / user / payment 拆分独立部署 + API Gateway
 - **分库分表**：订单表按 `session_id` 分片
-- **CDN**：演出海报等静态资源加速
+- **CDN**：演出海报等静态资源加速；上线时把 MinIO 切换为阿里云 OSS / AWS S3，只改 `minio.endpoint` / `accessKey` 即可
 
 ---
 

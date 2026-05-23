@@ -3,9 +3,11 @@
 #
 # 执行顺序: 按步骤依次运行
 # 前置条件:
-#   - docker-compose up -d  (MySQL:3306 + Redis:6379 + RabbitMQ:5672)
+#   - docker-compose up -d  (MySQL:3306 + Redis:6379 + RabbitMQ:5672 + MinIO:9000/9001)
 #   - admin  服务启动: 端口 8081
 #   - user   服务启动: 端口 8082
+#
+# 配套前端仓库: https://github.com/Link-X/maill-frontend
 #
 # 说明: token / roomId / sessionId / orderNo / orderId / ticketNo / qrCode
 #       需从上一步响应中复制到下方对应变量后再执行后续请求
@@ -115,6 +117,33 @@ GET {{adminHost}}/api/admin/room/seat/list?roomId={{roomId}}
 GET {{adminHost}}/api/admin/room/area/list?roomId={{roomId}}
 
 ###
+# Step 5.4: 聚合查询场地完整模板 (Admin)
+# 一次返回 room 基本信息 + 座位模板 + 默认价格区域，前端按 areaId 在内存做 join 渲染座位图
+# 预期: {"code":200,"data":{"room":{...},"seats":[...],"areas":[...]}}
+GET {{adminHost}}/api/admin/room/template?roomId={{roomId}}
+
+###
+# ──────────── Admin 文件上传 ────────────
+
+###
+# Step 5.5: 上传图片到 MinIO (Admin)
+# multipart/form-data；表单字段 file（必填）+ dir（可选，目录前缀，默认 misc）
+# 常用 dir 取值: posters（演出海报）/ rooms（场地图）/ avatars（用户头像）
+# 预期: {"code":200,"data":{"url":"http://localhost:9000/ticket/posters/2026/05/23/xxxxx.jpg"}}
+#
+# IntelliJ HTTP Client 上传文件语法（注意需要替换为本地真实文件路径）:
+POST {{adminHost}}/api/admin/upload/image?dir=posters
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary
+Authorization: Bearer {{token}}
+
+------WebKitFormBoundary
+Content-Disposition: form-data; name="file"; filename="poster.jpg"
+Content-Type: image/jpeg
+
+< /absolute/path/to/poster.jpg
+------WebKitFormBoundary--
+
+###
 # ──────────── Admin 演出/场次管理 ────────────
 
 ###
@@ -153,10 +182,16 @@ GET {{adminHost}}/api/admin/show/list
 ###
 # Step 7: 创建场次 (Admin) → 复制 data.id 到 @sessionId
 #
-# 方式 A（推荐）: 填写 roomId → 座位和价格区域自动从场地模板复制，无需再执行 Step 8/9
-# 方式 B: 不填 roomId → 自行执行 Step 8（保存价格区域）和 Step 9（批量建座位）
+# 方式 A（推荐）: 填写 roomId → 后端自动:
+#   1) 从 Room 复制 rowCount / colCount 写入 show_session
+#   2) 复制座位模板和默认价格区域到该场次
+#   3) 复制完成后用真实座位数回填 total_seats
+#   方式 A 下前端不需要传 totalSeats / rowCount / colCount（即便传了也会被 Room 的真实值覆盖）
 #
-# 预期: {"code":200,"data":{"id":1,"showId":1,"roomId":1,...}}
+# 方式 B: 不填 roomId → 自行执行 Step 8（保存价格区域）和 Step 9（批量建座位）
+#   此时需要前端自己传 totalSeats / rowCount / colCount，否则默认为 0（座位图渲染会空白）
+#
+# 预期: {"code":200,"data":{"id":1,"showId":1,"roomId":1,"rowCount":2,"colCount":3,"totalSeats":6,...}}
 POST {{adminHost}}/api/admin/session/create
 Content-Type: application/json
 
@@ -166,10 +201,7 @@ Content-Type: application/json
   "name": "上海 2036-06-01",
   "startTime": "2036-06-01T19:00:00",
   "endTime": "2036-06-01T22:00:00",
-  "totalSeats": 6,
-  "limitPerUser": 4,
-  "rowCount": 2,
-  "colCount": 3
+  "limitPerUser": 4
 }
 
 ###

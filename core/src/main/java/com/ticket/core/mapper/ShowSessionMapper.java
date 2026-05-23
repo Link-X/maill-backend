@@ -55,4 +55,13 @@ public interface ShowSessionMapper {
      * 按 ID 列表批量查询场次（IN 查询，避免 N+1）
      */
     List<ShowSession> selectByIds(@Param("ids") List<Long> ids);
+
+    /**
+     * 仅更新座位相关字段（row_count / col_count / total_seats），
+     * 用于场地模板复制到场次后回填，避免触发全字段 update 把其他字段覆盖成 null
+     */
+    int updateSeatInfo(@Param("id") Long id,
+                       @Param("rowCount") Integer rowCount,
+                       @Param("colCount") Integer colCount,
+                       @Param("totalSeats") Integer totalSeats);
 }

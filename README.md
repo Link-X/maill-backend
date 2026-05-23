@@ -5,18 +5,22 @@
 ![MySQL](https://img.shields.io/badge/MySQL-8.x-orange)
 ![Redis](https://img.shields.io/badge/Redis-7.x-red)
 ![RabbitMQ](https://img.shields.io/badge/RabbitMQ-3.x-ff6600)
+![MinIO](https://img.shields.io/badge/MinIO-S3%20compatible-c72e49)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
 [中文文档](README.zh.md)
 
 A high-concurrency ticket booking backend targeting thousands to tens of thousands of concurrent users. Features show management, seat selection, Redis-based inventory, order timeout cancellation, mock payment, venue check-in verification, and partial refunds. Built with a Maven multi-module architecture for independent deployment.
 
+> **Companion frontend repository**: [Link-X/maill-frontend](https://github.com/Link-X/maill-frontend)
+
 ---
 
 ## Features
 
 - **Show Management** — CRUD for shows / sessions / seats; admin warms up seat inventory into Redis with one click
-- **Venue Templates** — Define seat layout and default prices once on a room; sessions created with a `roomId` auto-copy all seats and price areas instantly
+- **Venue Templates** — Define seat layout and default prices once on a room; sessions created with a `roomId` auto-copy all seats and price areas instantly; `/room/template` endpoint returns room + seats + areas in a single call
+- **Image Upload** — Admin `/upload/image` endpoint backed by MinIO object storage (S3-compatible) for show posters, venue maps, etc.; returns an externally accessible URL
 - **Booking Core** — Lua atomic purchase-limit check + Redis batch seat lock (full rollback on any failure) + synchronous order creation
 - **Oversell Prevention** — Redis Set atomic `SREM` deduction + DB-level safety check
 - **Order Timeout** — RabbitMQ TTL + dead-letter queue, cancels order and releases inventory exactly 5 minutes after creation
@@ -38,6 +42,7 @@ A high-concurrency ticket booking backend targeting thousands to tens of thousan
 | Cache / Lock | Redis + Redisson | 7.x / 3.x |
 | Message Queue | RabbitMQ | 3.x |
 | Database | MySQL | 8.x |
+| Object Storage | MinIO (S3-compatible) | 8.5.x SDK |
 | Auth | Spring Security + JJWT | 0.12.x |
 | Build | Maven | — |
 
@@ -81,9 +86,10 @@ common ← core ← admin
 docker-compose up -d
 ```
 
-Starts MySQL 8 (3306), Redis 7 (6379), and RabbitMQ 3 (5672, management UI on 15672). `sql/schema.sql` is executed automatically on first run.
+Starts MySQL 8 (3306), Redis 7 (6379), RabbitMQ 3 (5672, management UI on 15672), and MinIO (9000 API / 9001 console). `sql/schema.sql` is executed automatically on first run; the MinIO `ticket` bucket is auto-created with a public-read policy the first time admin starts.
 
 > **RabbitMQ Management UI**: http://localhost:15672 (guest / guest)
+> **MinIO Console**: http://localhost:9001 (minioadmin / minioadmin123)
 
 ### 2. Build
 
@@ -175,6 +181,13 @@ Define the seat layout and default prices on a room once; specifying `roomId` wh
 | GET  | `/api/admin/room/seat/list?roomId=` | Room seat template list |
 | POST | `/api/admin/room/area/save` | Save room default price areas (overwrite) |
 | GET  | `/api/admin/room/area/list?roomId=` | Room default price area list |
+| GET  | `/api/admin/room/template?roomId=` | **Aggregate query**: returns room + seats + areas in one call, ready for seat-map rendering |
+
+#### File Upload
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/admin/upload/image` | Upload an image to MinIO (`multipart/form-data`, field `file`, optional `dir` default `misc`); returns the externally accessible URL |
 
 #### Shows & Sessions
 
@@ -410,7 +423,7 @@ public Result<?> submit(...) { }
 - **Notification service** — integrate SMS / push, implement `notification.queue` consumer
 - **Microservices** — split admin / user / payment into independent services behind an API Gateway
 - **Sharding** — partition the order table by `session_id`
-- **CDN** — offload show poster and static assets
+- **CDN** — offload show poster and static assets; swap MinIO for Aliyun OSS / AWS S3 in production by changing `minio.endpoint` / `accessKey` only
 
 ---
 

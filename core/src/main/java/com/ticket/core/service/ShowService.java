@@ -1,5 +1,6 @@
 package com.ticket.core.service;
 
+import com.ticket.core.domain.entity.Room;
 import com.ticket.core.domain.entity.Seat;
 import com.ticket.core.domain.entity.SeatArea;
 import com.ticket.core.domain.entity.Show;
@@ -103,7 +104,12 @@ public class ShowService {
 
     /**
      * 创建场次
-     * 设置 status=0，insert，返回 session
+     * 1. status 强制设为 0（未开售）
+     * 2. 若指定 roomId，先从 Room 拷贝 rowCount/colCount 到 session（保证 insert 时即填充）
+     * 3. insert 后调用 copyToSession 复制座位与价格区域，并用返回的座位数回填 total_seats
+     *
+     * 修复：原实现 insert 后没有把 Room 的行列数与实际座位数同步到 show_session，
+     * 导致后续 getSeatSection 渲染座位图时 rowCount/colCount 为 0，整个场次座位图空白。
      */
     @Transactional(rollbackFor = Exception.class)
     public ShowSession createSession(ShowSession showSession) {
@@ -111,11 +117,37 @@ public class ShowService {
         showSession.setStatus(0);
         showSession.setCreateTime(now);
         showSession.setUpdateTime(now);
+
+        // 先把 Room 的行列数前置填充到 session，避免 insert 出来的 row_count/col_count 为 null
+        Room room = null;
+        if (showSession.getRoomId() != null) {
+            room = roomService.getRoom(showSession.getRoomId());
+            if (room != null) {
+                showSession.setRowCount(room.getRowCount());
+                showSession.setColCount(room.getColCount());
+            }
+        }
+
+        // 表里 row_count / col_count / total_seats 都是 NOT NULL DEFAULT 0，
+        // 这里统一兜底，避免没传 roomId 或 Room 字段缺失时 MyBatis 显式插入 NULL 触发约束错误
+        if (showSession.getRowCount() == null) {
+            showSession.setRowCount(0);
+        }
+        if (showSession.getColCount() == null) {
+            showSession.setColCount(0);
+        }
+        if (showSession.getTotalSeats() == null) {
+            showSession.setTotalSeats(0);
+        }
+
         showSessionMapper.insert(showSession);
 
-        // 如果指定了场地，自动复制座位模板和默认价格区域
-        if (showSession.getRoomId() != null) {
-            roomService.copyToSession(showSession.getRoomId(), showSession.getId());
+        // 复制座位 / 价格区域，用复制出的实际座位数回填 total_seats
+        if (room != null) {
+            int seatCount = roomService.copyToSession(showSession.getRoomId(), showSession.getId());
+            showSession.setTotalSeats(seatCount);
+            showSessionMapper.updateSeatInfo(showSession.getId(),
+                    showSession.getRowCount(), showSession.getColCount(), seatCount);
         }
         return showSession;
     }
