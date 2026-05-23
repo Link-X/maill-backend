@@ -2,6 +2,7 @@ package com.ticket.core.domain.vo;
 
 import lombok.Data;
 import java.time.LocalDateTime;
+import java.util.Map;
 
 /**
  * 演出展示 VO：Show 字段 + 冗余 categoryName，避免前端再查一次分类表
@@ -19,8 +20,8 @@ public class ShowVO {
     private String posterUrl;
     private String venue;
     private Integer status;
-    /** 扩展字段 JSON 串，原样透传给前端 */
-    private String extend;
+    /** 扩展字段，原样透传给前端（JSON 对象） */
+    private Map<String, Object> extend;
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
 }

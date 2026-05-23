@@ -1,10 +1,13 @@
 package com.ticket.admin.controller;
 
+import com.ticket.admin.dto.CategoryCreateRequest;
+import com.ticket.admin.dto.CategoryUpdateRequest;
 import com.ticket.common.result.Result;
 import com.ticket.core.domain.entity.Category;
 import com.ticket.core.service.CategoryService;
 import org.springframework.web.bind.annotation.*;
 
+import javax.validation.Valid;
 import java.util.List;
 
 /**
@@ -27,12 +30,23 @@ public class CategoryController {
     }
 
     @PostMapping("/create")
-    public Result<Category> create(@RequestBody Category category) {
+    public Result<Category> create(@Valid @RequestBody CategoryCreateRequest req) {
+        Category category = new Category();
+        category.setName(req.getName());
+        category.setSort(req.getSort());
+        category.setIcon(req.getIcon());
+        category.setStatus(req.getStatus());
         return Result.success(categoryService.create(category));
     }
 
     @PutMapping("/update")
-    public Result<Category> update(@RequestBody Category category) {
+    public Result<Category> update(@Valid @RequestBody CategoryUpdateRequest req) {
+        Category category = new Category();
+        category.setId(req.getId());
+        category.setName(req.getName());
+        category.setSort(req.getSort());
+        category.setIcon(req.getIcon());
+        category.setStatus(req.getStatus());
         return Result.success(categoryService.update(category));
     }
 

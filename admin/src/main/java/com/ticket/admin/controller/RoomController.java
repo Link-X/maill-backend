@@ -1,7 +1,9 @@
 package com.ticket.admin.controller;
 
 import com.ticket.admin.dto.RoomAreaSaveRequest;
+import com.ticket.admin.dto.RoomCreateRequest;
 import com.ticket.admin.dto.RoomSeatBatchRequest;
+import com.ticket.admin.dto.RoomUpdateRequest;
 import com.ticket.common.result.Result;
 import com.ticket.core.domain.entity.Room;
 import com.ticket.core.domain.vo.RoomTemplateVO;
@@ -21,12 +23,25 @@ public class RoomController {
     }
 
     @PostMapping("/create")
-    public Result<Room> createRoom(@RequestBody Room room) {
+    public Result<Room> createRoom(@Valid @RequestBody RoomCreateRequest req) {
+        Room room = new Room();
+        room.setName(req.getName());
+        room.setVenue(req.getVenue());
+        room.setRowCount(req.getRowCount());
+        room.setColCount(req.getColCount());
+        room.setDescription(req.getDescription());
         return Result.success(roomService.createRoom(room));
     }
 
     @PutMapping("/update")
-    public Result<Room> updateRoom(@RequestBody Room room) {
+    public Result<Room> updateRoom(@Valid @RequestBody RoomUpdateRequest req) {
+        Room room = new Room();
+        room.setId(req.getId());
+        room.setName(req.getName());
+        room.setVenue(req.getVenue());
+        room.setRowCount(req.getRowCount());
+        room.setColCount(req.getColCount());
+        room.setDescription(req.getDescription());
         return Result.success(roomService.updateRoom(room));
     }
 

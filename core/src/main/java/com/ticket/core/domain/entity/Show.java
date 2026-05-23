@@ -2,6 +2,7 @@ package com.ticket.core.domain.entity;
 
 import lombok.Data;
 import java.time.LocalDateTime;
+import java.util.Map;
 
 /**
  * 演出实体类
@@ -21,8 +22,8 @@ public class Show {
     /** 场馆名 */
     private String venue;
     private Integer status;
-    /** 扩展字段 JSON 串（如预售/退改规则/时长/适宜年龄）；不参与 WHERE/索引，约定见前端文档 */
-    private String extend;
+    /** 扩展字段（如预售/退改规则/时长/适宜年龄）；不参与 WHERE/索引，约定见前端文档。Mapper 中用 JsonMapTypeHandler 序列化 */
+    private Map<String, Object> extend;
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
 }

@@ -165,6 +165,7 @@ public class ShowService {
      * mapper.update，返回 selectById 查询结果
      */
     public ShowSession updateSession(ShowSession showSession) {
+        showSession.setUpdateTime(LocalDateTime.now());
         showSessionMapper.update(showSession);
         return showSessionMapper.selectById(showSession.getId());
     }

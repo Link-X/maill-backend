@@ -1,9 +1,13 @@
 package com.ticket.admin.controller;
 
+import com.ticket.admin.dto.ShowCreateRequest;
+import com.ticket.admin.dto.ShowUpdateRequest;
 import com.ticket.common.result.Result;
 import com.ticket.core.domain.entity.Show;
 import com.ticket.core.service.ShowService;
 import org.springframework.web.bind.annotation.*;
+
+import javax.validation.Valid;
 
 @RestController
 @RequestMapping("/api/admin/show")
@@ -16,12 +20,33 @@ public class ShowController {
     }
 
     @PostMapping("/create")
-    public Result<Show> createShow(@RequestBody Show show) {
+    public Result<Show> createShow(@Valid @RequestBody ShowCreateRequest req) {
+        Show show = new Show();
+        show.setName(req.getName());
+        show.setDescription(req.getDescription());
+        show.setCategoryId(req.getCategoryId());
+        show.setCityCode(req.getCityCode());
+        show.setAddress(req.getAddress());
+        show.setVenue(req.getVenue());
+        show.setPosterUrl(req.getPosterUrl());
+        show.setExtend(req.getExtend());
+        // status 由 service 强制为 1；id / createTime / updateTime 由 service 生成
         return Result.success(showService.createShow(show));
     }
 
     @PutMapping("/update")
-    public Result<Show> updateShow(@RequestBody Show show) {
+    public Result<Show> updateShow(@Valid @RequestBody ShowUpdateRequest req) {
+        Show show = new Show();
+        show.setId(req.getId());
+        show.setName(req.getName());
+        show.setDescription(req.getDescription());
+        show.setCategoryId(req.getCategoryId());
+        show.setCityCode(req.getCityCode());
+        show.setAddress(req.getAddress());
+        show.setVenue(req.getVenue());
+        show.setPosterUrl(req.getPosterUrl());
+        show.setExtend(req.getExtend());
+        show.setStatus(req.getStatus());
         return Result.success(showService.updateShow(show));
     }
 

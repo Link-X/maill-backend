@@ -1,9 +1,13 @@
 package com.ticket.admin.controller;
 
+import com.ticket.admin.dto.SessionCreateRequest;
+import com.ticket.admin.dto.SessionUpdateRequest;
 import com.ticket.common.result.Result;
 import com.ticket.core.domain.entity.ShowSession;
 import com.ticket.core.service.ShowService;
 import org.springframework.web.bind.annotation.*;
+
+import javax.validation.Valid;
 
 @RestController
 @RequestMapping("/api/admin/session")
@@ -16,13 +20,32 @@ public class SessionController {
     }
 
     @PostMapping("/create")
-    public Result<ShowSession> createSession(@RequestBody ShowSession session) {
+    public Result<ShowSession> createSession(@Valid @RequestBody SessionCreateRequest req) {
+        ShowSession session = new ShowSession();
+        session.setShowId(req.getShowId());
+        session.setRoomId(req.getRoomId());
+        session.setName(req.getName());
+        session.setStartTime(req.getStartTime());
+        session.setEndTime(req.getEndTime());
+        session.setLimitPerUser(req.getLimitPerUser());
+        session.setExtend(req.getExtend());
+        // status 后端固定为 0；totalSeats / rowCount / colCount 由 service 从 Room 自动计算
         return Result.success(showService.createSession(session));
     }
 
     @PutMapping("/update")
-    public Result<ShowSession> updateSession(@RequestBody ShowSession session) {
-        return Result.success(showService.updateSession(session));
+    public Result<ShowSession> updateSession(@Valid @RequestBody SessionUpdateRequest req) {
+        // 先读出现有记录，仅覆盖允许更新的字段，防止把后端管理的字段(status/totalSeats/rowCount/colCount/showId/roomId)清空
+        ShowSession existing = showService.getSession(req.getId());
+        if (existing == null) {
+            return Result.fail(404, "场次不存在");
+        }
+        existing.setName(req.getName());
+        existing.setStartTime(req.getStartTime());
+        existing.setEndTime(req.getEndTime());
+        existing.setLimitPerUser(req.getLimitPerUser());
+        existing.setExtend(req.getExtend());
+        return Result.success(showService.updateSession(existing));
     }
 
     @GetMapping("/{id}")
