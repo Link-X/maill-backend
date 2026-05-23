@@ -4,6 +4,16 @@
 
 <mapper namespace="com.ticket.core.mapper.OrderMapper">
 
+    <!-- 修改 order 表字段时只改这里 -->
+    <sql id="Columns">
+        id, order_no, user_id, session_id, total_amount, status,
+        pay_time, expire_time, create_time, update_time
+    </sql>
+    <sql id="ColumnsAliased">
+        o.id, o.order_no, o.user_id, o.session_id, o.total_amount, o.status,
+        o.pay_time, o.expire_time, o.create_time, o.update_time
+    </sql>
+
     <!-- 订单结果映射 -->
     <resultMap id="OrderResultMap" type="com.ticket.core.domain.entity.Order">
         <id column="id" property="id"/>
@@ -26,14 +36,14 @@
 
     <!-- 根据 ID 查询订单 -->
     <select id="selectById" resultMap="OrderResultMap">
-        SELECT id, order_no, user_id, session_id, total_amount, status, pay_time, expire_time, create_time, update_time
+        SELECT <include refid="Columns"/>
         FROM `order`
         WHERE id = #{id}
     </select>
 
     <!-- 根据订单号查询订单 -->
     <select id="selectByOrderNo" resultMap="OrderResultMap">
-        SELECT id, order_no, user_id, session_id, total_amount, status, pay_time, expire_time, create_time, update_time
+        SELECT <include refid="Columns"/>
         FROM `order`
         WHERE order_no = #{orderNo}
     </select>
@@ -54,7 +64,7 @@
 
     <!-- 查询已过期待支付订单（status=0 且 expire_time < expireTime） -->
     <select id="selectExpiredOrders" resultMap="OrderResultMap">
-        SELECT id, order_no, user_id, session_id, total_amount, status, pay_time, expire_time, create_time, update_time
+        SELECT <include refid="Columns"/>
         FROM `order`
         WHERE status = #{status}
           AND expire_time &lt; #{expireTime}
@@ -63,7 +73,7 @@
 
     <!-- 查询长时间停留在指定状态的订单(update_time 早于 updateBefore),用于卡死状态补偿 -->
     <select id="selectStuckOrders" resultMap="OrderResultMap">
-        SELECT id, order_no, user_id, session_id, total_amount, status, pay_time, expire_time, create_time, update_time
+        SELECT <include refid="Columns"/>
         FROM `order`
         WHERE status = #{status}
           AND update_time &lt; #{updateBefore}
@@ -83,7 +93,7 @@
 
     <!-- 按用户查询订单列表（按创建时间倒序，分页），startTime/endTime 可选 -->
     <select id="selectByUserId" resultMap="OrderResultMap">
-        SELECT id, order_no, user_id, session_id, total_amount, status, pay_time, expire_time, create_time, update_time
+        SELECT <include refid="Columns"/>
         FROM `order`
         WHERE user_id = #{userId}
         <if test="status != null">AND status = #{status}</if>
@@ -107,8 +117,7 @@
       其余字段均走 order 表自身索引：orderNo 走 uk_order_no，sessionId 走 idx_session_id。
     -->
     <select id="selectByAdminCondition" resultMap="OrderResultMap">
-        SELECT o.id, o.order_no, o.user_id, o.session_id, o.total_amount, o.status,
-               o.pay_time, o.expire_time, o.create_time, o.update_time
+        SELECT <include refid="ColumnsAliased"/>
         FROM `order` o
         <if test="showId != null">JOIN show_session ss ON ss.id = o.session_id AND ss.show_id = #{showId}</if>
         <where>

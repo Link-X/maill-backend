@@ -28,6 +28,7 @@
         <mybatis-spring-boot.version>2.3.2</mybatis-spring-boot.version>
         <redisson.version>3.23.5</redisson.version>
         <jjwt.version>0.12.5</jjwt.version>
+        <springdoc.version>1.7.0</springdoc.version>
     </properties>
 
     <modules>
@@ -72,6 +73,11 @@
                 <artifactId>mysql-connector-java</artifactId>
                 <version>8.0.33</version>
                 <scope>runtime</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.springdoc</groupId>
+                <artifactId>springdoc-openapi-ui</artifactId>
+                <version>${springdoc.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

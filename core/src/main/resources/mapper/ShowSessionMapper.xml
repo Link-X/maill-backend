@@ -4,6 +4,12 @@
 
 <mapper namespace="com.ticket.core.mapper.ShowSessionMapper">
 
+    <!-- 修改 show_session 表字段时只改这里 -->
+    <sql id="Columns">
+        id, show_id, room_id, name, start_time, end_time, total_seats, limit_per_user, status,
+        row_count, col_count, extend, create_time, update_time
+    </sql>
+
     <resultMap id="ShowSessionResultMap" type="com.ticket.core.domain.entity.ShowSession">
         <id     column="id"            property="id"/>
         <result column="show_id"       property="showId"/>
@@ -55,22 +61,19 @@
     </update>
 
     <select id="selectById" resultMap="ShowSessionResultMap">
-        SELECT id, show_id, room_id, name, start_time, end_time, total_seats, limit_per_user, status,
-               row_count, col_count, extend, create_time, update_time
+        SELECT <include refid="Columns"/>
         FROM show_session WHERE id = #{id}
     </select>
 
     <select id="selectByShowId" resultMap="ShowSessionResultMap">
-        SELECT id, show_id, room_id, name, start_time, end_time, total_seats, limit_per_user, status,
-               row_count, col_count, extend, create_time, update_time
+        SELECT <include refid="Columns"/>
         FROM show_session WHERE show_id = #{showId}
         ORDER BY start_time ASC
     </select>
 
 
     <select id="selectByCondition" resultMap="ShowSessionResultMap">
-        SELECT id, show_id, room_id, name, start_time, end_time, total_seats, limit_per_user, status,
-               row_count, col_count, extend, create_time, update_time
+        SELECT <include refid="Columns"/>
         FROM show_session
         <where>
             AND show_id = #{showId}
@@ -95,8 +98,7 @@
 
     <!-- 按 ID 列表批量查询场次（IN 查询，避免 N+1） -->
     <select id="selectByIds" resultMap="ShowSessionResultMap">
-        SELECT id, show_id, room_id, name, start_time, end_time, total_seats, limit_per_user, status,
-               row_count, col_count, extend, create_time, update_time
+        SELECT <include refid="Columns"/>
         FROM show_session
         WHERE id IN
         <foreach collection="ids" item="id" open="(" separator="," close=")">

@@ -36,3 +36,16 @@ jwt:
 logging:
   level:
     com.ticket: DEBUG
+
+# SpringDoc OpenAPI（开发环境暴露 /swagger-ui.html）
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: alpha
+    tags-sorter: alpha
+  info:
+    title: Ticket User API
+    description: 用户端 REST API（演出 / 场次 / 分类 / 城市 / 下单 / 支付 / 入场核验）
+    version: 1.0.0

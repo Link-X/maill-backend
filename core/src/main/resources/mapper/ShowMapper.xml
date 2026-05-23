@@ -4,6 +4,18 @@
 
 <mapper namespace="com.ticket.core.mapper.ShowMapper">
 
+    <!-- ============== 列清单（修改 show 表字段时只改这里） ============== -->
+    <!-- 不带前缀，用于 INSERT 列名 / 单表 SELECT -->
+    <sql id="Columns">
+        id, name, description, category_id, city_code, address,
+        poster_url, venue, status, extend, create_time, update_time
+    </sql>
+    <!-- 带 s. 前缀，用于 JOIN 查询 -->
+    <sql id="ColumnsAliased">
+        s.id, s.name, s.description, s.category_id, s.city_code, s.address,
+        s.poster_url, s.venue, s.status, s.extend, s.create_time, s.update_time
+    </sql>
+
     <!-- 演出实体映射（管理端写入与基础查询使用） -->
     <resultMap id="ShowResultMap" type="com.ticket.core.domain.entity.Show">
         <id     column="id"          property="id"/>
@@ -61,22 +73,19 @@
     </update>
 
     <select id="selectById" resultMap="ShowResultMap">
-        SELECT id, name, description, category_id, city_code, address,
-               poster_url, venue, status, extend, create_time, update_time
+        SELECT <include refid="Columns"/>
         FROM `show`
         WHERE id = #{id}
     </select>
 
     <select id="selectAll" resultMap="ShowResultMap">
-        SELECT id, name, description, category_id, city_code, address,
-               poster_url, venue, status, extend, create_time, update_time
+        SELECT <include refid="Columns"/>
         FROM `show`
         ORDER BY create_time DESC
     </select>
 
     <select id="selectByStatus" resultMap="ShowResultMap">
-        SELECT id, name, description, category_id, city_code, address,
-               poster_url, venue, status, extend, create_time, update_time
+        SELECT <include refid="Columns"/>
         FROM `show`
         WHERE status = #{status}
         ORDER BY create_time DESC
@@ -88,8 +97,7 @@
       name/venue 走 idx_name / idx_venue 前缀索引；categoryId 走 idx_category_id；cityCode 走 idx_city_code。
     -->
     <select id="selectVOByCondition" resultMap="ShowVOResultMap">
-        SELECT s.id, s.name, s.description, s.category_id, s.city_code, s.address,
-               s.poster_url, s.venue, s.status, s.extend, s.create_time, s.update_time,
+        SELECT <include refid="ColumnsAliased"/>,
                c.name AS category_name, ct.name AS city_name
         FROM `show` s
         LEFT JOIN category c  ON c.id   = s.category_id
@@ -118,8 +126,7 @@
     </select>
 
     <select id="selectVOById" resultMap="ShowVOResultMap">
-        SELECT s.id, s.name, s.description, s.category_id, s.city_code, s.address,
-               s.poster_url, s.venue, s.status, s.extend, s.create_time, s.update_time,
+        SELECT <include refid="ColumnsAliased"/>,
                c.name AS category_name, ct.name AS city_name
         FROM `show` s
         LEFT JOIN category c  ON c.id   = s.category_id
@@ -128,8 +135,7 @@
     </select>
 
     <select id="selectByIds" resultMap="ShowResultMap">
-        SELECT id, name, description, category_id, city_code, address,
-               poster_url, venue, status, extend, create_time, update_time
+        SELECT <include refid="Columns"/>
         FROM `show`
         WHERE id IN
         <foreach collection="ids" item="id" open="(" separator="," close=")">

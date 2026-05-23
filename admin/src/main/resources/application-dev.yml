@@ -45,3 +45,16 @@ admin:
 logging:
   level:
     com.ticket: DEBUG
+
+# SpringDoc OpenAPI（开发环境暴露 /swagger-ui.html）
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: alpha
+    tags-sorter: alpha
+  info:
+    title: Ticket Admin API
+    description: 管理端 REST API（演出 / 场次 / 分类 / 城市 / 场地模板 / 订单 / 监控）
+    version: 1.0.0
