@@ -30,7 +30,9 @@
 - **异步事件**：支付成功后通过 RabbitMQ Fanout 并行触发票券生成、DB 库存同步、通知（预留）
 - **退款**：支持整单退款与单票退款；已部分退款订单（状态 5）可继续退剩余未使用票
 - **注解限流**：`@RateLimit` 注解支持全局 / 用户 / IP 三维度固定窗口限流 + 黑名单拦截
-- **参数校验**：`@Valid` + 全局异常处理，统一返回友好错误信息
+- **参数校验**：admin 写接口用专用 `*Request` DTO + `@Valid` 严格约束（前端无法传 id / status / createTime 等不该暴露字段）；全局异常处理统一返回友好错误信息
+- **链路追踪**：`TraceIdFilter` 在请求入口生成 traceId，注入 MDC、写入响应头 `X-Trace-Id` 与 Result body `traceId` 字段，便于排障
+- **API 文档**：SpringDoc OpenAPI 自动生成 Swagger UI（`/swagger-ui.html`），无需手动维护接口文档
 - **入场核验**：支持二维码 / 票号双通道核销
 - **JWT 认证**：`@NoLogin` 注解标记免登录接口，其余默认鉴权
 
@@ -55,15 +57,28 @@
 
 ```
 maill-backend/
-├── common/      # 通用工具：响应封装、异常、雪花ID、RedisKeys、@RateLimit 注解 + AOP、黑名单
-├── core/        # 核心业务：实体、Mapper、Service、MQ Producer/Consumer
-├── admin/       # 管理端 REST API（端口 8081）
-├── user/        # 用户端 REST API（端口 8082）
+├── common/      # 通用工具：响应封装、异常、雪花ID、RedisKeys、@RateLimit 注解 + AOP、黑名单、TraceIdFilter
+├── core/        # 核心业务：实体、Mapper、Service、MQ Producer/Consumer、MyBatis JsonMapTypeHandler
+├── admin/       # 管理端 REST API（端口 8081）+ Request DTO + AdminAuthInterceptor
+├── user/        # 用户端 REST API（端口 8082）+ LoginCheckInterceptor
 ├── payment/     # 支付模块（端口 8083，预留）
 ├── sql/
 │   └── schema.sql
 └── docker-compose.yml
 ```
+
+**Service 分层（CQRS-lite）**：单一职责拆分，写命令与查询分离
+
+| Service | 职责 |
+|---------|------|
+| `ShowService` | Show CRUD |
+| `SessionService` | Session CRUD + 发布开售 + 座位图聚合查询 |
+| `CategoryService` / `CityService` | 分类 / 城市（CityService 只读） |
+| `RoomService` | 场地模板 + copyToSession 复制座位/价格 |
+| `OrderCommandService` | 下单 / 取消 / 退款（事务边界） |
+| `OrderQueryService` | 单条 / 批量订单查询 + OrderStatusResponse 装配（含批量预取，避免 N+1） |
+| `SeatInventoryService` / `PurchaseLimitService` | Redis 库存与限购 |
+| `StorageService` | MinIO 上传 |
 
 依赖关系：
 
@@ -112,6 +127,10 @@ mvn spring-boot:run -pl user
 
 默认使用 `dev` profile，数据库密码为 `root123`，可在各模块 `application-dev.yml` 中修改。
 
+服务启动后：
+- **Swagger UI**: http://localhost:8081/swagger-ui.html （admin） / http://localhost:8082/swagger-ui.html （user）
+- 每个响应自带 `X-Trace-Id` 响应头与 body 内 `traceId` 字段，排障时把这个 ID 给后端即可定位日志
+
 ### 4. 生成压测数据（可选）
 
 ```bash
@@ -125,7 +144,45 @@ bash docs/seed-data.sh
 
 ## API 概览
 
+> **详细字段、请求体、返回结构、错误码** 见 Swagger UI（启动服务后访问）：
+> - 用户端：http://localhost:8082/swagger-ui.html
+> - 管理端：http://localhost:8081/swagger-ui.html
+>
+> 下表只给"有哪几类接口"的速览，避免文档与代码漂移。
+
 ### 用户端（:8082）
+
+| 模块 | 路径前缀 | 主要功能 |
+|------|---------|---------|
+| 认证 | `/api/auth/*` | 注册 / 登录（返回 JWT） |
+| 分类 / 城市（首页 tabs） | `/api/category` `/api/city` | 启用列表，按 sort 排序 |
+| 演出 | `/api/show/*` | 列表（name/categoryId/cityCode/venue 筛选）/ 详情，返回 ShowVO（含 categoryName / cityName / address / extend） |
+| 场次 | `/api/session/*` | 列表 / 座位图详情（含演出与城市地址） |
+| 订单 | `/api/order/*` | 锁座建单 / 取消 / 单票退款 / 我的订单 / 订单详情 |
+| 支付 | `/api/payment/*` | 支付订单 |
+| 入场核验 | `/api/verify/*` | 二维码 / 票号核销 |
+
+### 管理端（:8081）
+
+| 模块 | 路径前缀 | 主要功能 |
+|------|---------|---------|
+| 鉴权 | `/api/admin/auth/*` | 管理员注册 / 登录（需 `ADMIN_INVITE_CODE`） |
+| 分类管理 | `/api/admin/category/*` | CRUD；删除被引用返回 1012 |
+| 城市（只读） | `/api/admin/city/list` | 演出表单下拉源；数据由 schema.sql seed |
+| 场地模板 | `/api/admin/room/*` | 场地 CRUD + 座位模板 + 默认价格区域 + `/template` 聚合 |
+| 文件上传 | `/api/admin/upload/image` | multipart 上传到 MinIO，返回外链 URL |
+| 演出 | `/api/admin/show/*` | Show CRUD（Request DTO 严格校验，status 不接受前端传） |
+| 场次 | `/api/admin/session/*` | Session CRUD + `/{id}/publish` 开售；传 roomId 自动复制座位 + 价格 |
+| 座位（手动模式） | `/api/admin/seat/*` | 不走场地模板时的座位批量 / 价格区域 / Redis 预热 |
+| 订单管理 | `/api/admin/order/*` | 单查 / 列表（showId / sessionId / orderNo / status / 时间筛选） |
+| 监控 | `/api/admin/monitor/dashboard` | 场次座位实时统计（总数 / 可售 / 已售） |
+
+---
+
+<!-- 旧的详细 API 表已替换为上方分组速览；具体字段以 Swagger UI 为准 -->
+
+<details>
+<summary>历史详细 API 表（已折叠，仅作参考）</summary>
 
 #### 认证
 
@@ -251,6 +308,8 @@ bash docs/seed-data.sh
 | GET  | `/api/admin/order/{id}/items` | 订单明细（含座位） |
 | POST | `/api/admin/order/list` | **订单分页列表**，支持 showId / sessionId / orderNo / status / 时间范围筛选，返回与用户端同结构（含 show / city / tickets） |
 | GET  | `/api/admin/monitor/dashboard?sessionId=` | 实时座位统计（总数 / 可售 / 已售） |
+
+</details>
 
 ---
 

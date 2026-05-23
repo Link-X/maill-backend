@@ -30,7 +30,9 @@ A high-concurrency ticket booking backend targeting thousands to tens of thousan
 - **Async Events** — After payment, RabbitMQ Fanout fan-out triggers ticket generation, DB inventory sync, and notification (reserved) in parallel
 - **Refunds** — Full-order and per-ticket refunds; partially-refunded orders (status 5) can continue to refund remaining unused tickets
 - **Annotation Rate Limiting** — `@RateLimit` annotation supports GLOBAL / USER / IP three-dimensional fixed-window rate limiting + blacklist interception
-- **Parameter Validation** — `@Valid` + global exception handler returns unified friendly error messages
+- **Parameter Validation** — Admin write endpoints use dedicated `*Request` DTOs with `@Valid` (clients cannot inject `id` / `status` / `createTime` etc.); global exception handler returns unified friendly errors
+- **Trace ID** — `TraceIdFilter` issues a per-request trace id, pushes it to MDC, returns it via the `X-Trace-Id` response header and the `traceId` field on every Result body — perfect for client/server log correlation
+- **API Docs** — SpringDoc OpenAPI auto-generates Swagger UI at `/swagger-ui.html`; no hand-maintained interface docs
 - **Check-in Verification** — Dual-channel: QR code or ticket number
 - **JWT Auth** — `@NoLogin` annotation marks public endpoints; all others require authentication by default
 
@@ -55,15 +57,28 @@ A high-concurrency ticket booking backend targeting thousands to tens of thousan
 
 ```
 maill-backend/
-├── common/      # Utilities: response wrapper, exceptions, Snowflake ID, RedisKeys, @RateLimit annotation + AOP, blacklist
-├── core/        # Core business: entities, Mappers, Services, MQ Producer/Consumer
-├── admin/       # Admin REST API  (port 8081)
-├── user/        # User  REST API  (port 8082)
-├── payment/     # Payment module  (port 8083, reserved)
+├── common/      # Utilities: response wrapper, exceptions, Snowflake ID, RedisKeys, @RateLimit AOP, blacklist, TraceIdFilter
+├── core/        # Core business: entities, Mappers, Services, MQ Producer/Consumer, MyBatis JsonMapTypeHandler
+├── admin/       # Admin REST API (port 8081) + Request DTOs + AdminAuthInterceptor
+├── user/        # User  REST API (port 8082) + LoginCheckInterceptor
+├── payment/     # Payment module (port 8083, reserved)
 ├── sql/
 │   └── schema.sql
 └── docker-compose.yml
 ```
+
+**Service layering (CQRS-lite)** — single-responsibility split between writes and reads:
+
+| Service | Responsibility |
+|---------|---------------|
+| `ShowService` | Show CRUD |
+| `SessionService` | Session CRUD + publish + seat-map aggregate query |
+| `CategoryService` / `CityService` | Category / city (city is read-only) |
+| `RoomService` | Venue template + `copyToSession` (copies seats / price areas) |
+| `OrderCommandService` | Place / cancel / refund (transactional writes) |
+| `OrderQueryService` | Single / list queries + OrderStatusResponse assembly (batch prefetch, avoids N+1) |
+| `SeatInventoryService` / `PurchaseLimitService` | Redis inventory and purchase limits |
+| `StorageService` | MinIO upload |
 
 Dependency chain:
 
@@ -112,6 +127,10 @@ mvn spring-boot:run -pl user
 
 The default profile is `dev`. Database password is `root123`. Edit each module's `application-dev.yml` to change.
 
+After starting:
+- **Swagger UI**: http://localhost:8081/swagger-ui.html (admin) / http://localhost:8082/swagger-ui.html (user)
+- Every response carries an `X-Trace-Id` header and a `traceId` field in the Result body — paste this id when reporting issues so the backend can locate the log.
+
 ### 4. Seed load-test data (optional)
 
 ```bash
@@ -125,7 +144,43 @@ Creates 1 venue template (20 × 20 seats, VIP front section), 5 shows, 15 sessio
 
 ## API Overview
 
+> **Detailed fields, request bodies, response shapes, and error codes** are in Swagger UI (after starting the service):
+> - User:  http://localhost:8082/swagger-ui.html
+> - Admin: http://localhost:8081/swagger-ui.html
+>
+> The table below only gives a "what categories exist" overview, to avoid the README drifting away from the code.
+
 ### User Service (:8082)
+
+| Module | Path prefix | Main capabilities |
+|--------|------------|-------------------|
+| Auth | `/api/auth/*` | Register / login (returns JWT) |
+| Category / City (home tabs) | `/api/category` `/api/city` | Enabled lists sorted by `sort` |
+| Shows | `/api/show/*` | List (name/categoryId/cityCode/venue filters) / detail; returns ShowVO with categoryName / cityName / address / extend |
+| Sessions | `/api/session/*` | List / seat-map detail (includes show + city + address) |
+| Orders | `/api/order/*` | Lock & create / cancel / single-ticket refund / my orders / detail |
+| Payment | `/api/payment/*` | Pay an order |
+| Verification | `/api/verify/*` | QR / ticket-number check-in |
+
+### Admin Service (:8081)
+
+| Module | Path prefix | Main capabilities |
+|--------|------------|-------------------|
+| Auth | `/api/admin/auth/*` | Admin register / login (requires `ADMIN_INVITE_CODE`) |
+| Categories | `/api/admin/category/*` | CRUD; deleting a referenced category returns 1012 |
+| Cities (read-only) | `/api/admin/city/list` | Dropdown source for the show form; seeded by schema.sql |
+| Venue templates | `/api/admin/room/*` | Room CRUD + seat template + default price areas + `/template` aggregate |
+| Image upload | `/api/admin/upload/image` | Multipart upload to MinIO, returns external URL |
+| Shows | `/api/admin/show/*` | Show CRUD (Request DTOs strictly validate; `status` not accepted from clients) |
+| Sessions | `/api/admin/session/*` | Session CRUD + `/{id}/publish`; passing `roomId` auto-copies seats + prices |
+| Seats (manual) | `/api/admin/seat/*` | Batch seats / price areas / Redis warmup when not using a room template |
+| Orders | `/api/admin/order/*` | Single / list (filter by showId / sessionId / orderNo / status / time range) |
+| Monitor | `/api/admin/monitor/dashboard` | Real-time seat counts (total / available / sold) |
+
+---
+
+<details>
+<summary>Legacy full API tables (collapsed; field-level docs live in Swagger now)</summary>
 
 #### Auth
 
@@ -251,6 +306,8 @@ Define the seat layout and default prices on a room once; specifying `roomId` wh
 | GET  | `/api/admin/order/{id}/items` | Order line items (with seat info) |
 | POST | `/api/admin/order/list` | **Paginated order list** with filters: showId / sessionId / orderNo / status / time range; same response shape as the user-side list (includes show / city / tickets) |
 | GET  | `/api/admin/monitor/dashboard?sessionId=` | Real-time seat counts (total / available / sold) |
+
+</details>
 
 ---
 

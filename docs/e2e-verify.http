@@ -9,6 +9,11 @@
 #
 # 配套前端仓库: https://github.com/Link-X/maill-frontend
 #
+# 接口详细字段也可看 Swagger UI:
+#   admin: http://localhost:8081/swagger-ui.html
+#   user:  http://localhost:8082/swagger-ui.html
+# 每个响应都带 X-Trace-Id 响应头与 body 内 traceId 字段，排障时贴这个 ID 就能定位日志
+#
 # 说明: token / roomId / sessionId / orderNo / orderId / ticketNo / qrCode
 #       需从上一步响应中复制到下方对应变量后再执行后续请求
 
@@ -226,7 +231,7 @@ Content-Type: application/json
   "address": "朝阳区奥林匹克公园南路 1 号",
   "venue": "国家体育场（鸟巢）",
   "posterUrl": "https://example.com/poster.jpg",
-  "extend": "{\"duration\":120,\"ageLimit\":\"6+\",\"refundRule\":\"开演前24小时可退\"}"
+  "extend": { "duration": 120, "ageLimit": "6+", "refundRule": "开演前24小时可退" }
 }
 
 ###
@@ -244,7 +249,7 @@ Content-Type: application/json
   "address": "朝阳区奥林匹克公园南路 1 号",
   "venue": "国家体育场（鸟巢）",
   "posterUrl": "https://example.com/poster.jpg",
-  "extend": "{\"duration\":150,\"ageLimit\":\"6+\",\"refundRule\":\"开演前24小时可退\"}"
+  "extend": { "duration": 150, "ageLimit": "6+", "refundRule": "开演前24小时可退" }
 }
 
 ###
@@ -274,7 +279,7 @@ Content-Type: application/json
   "startTime": "2036-06-01T19:00:00",
   "endTime": "2036-06-01T22:00:00",
   "limitPerUser": 4,
-  "extend": "{\"preSaleLeadMinutes\":30,\"notice\":\"现场禁止携带食物\"}"
+  "extend": { "preSaleLeadMinutes": 30, "notice": "现场禁止携带食物" }
 }
 
 ###
