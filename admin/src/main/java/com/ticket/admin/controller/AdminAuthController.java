@@ -10,6 +10,7 @@ import com.ticket.common.exception.ErrorCode;
 import com.ticket.common.result.Result;
 import com.ticket.core.domain.entity.User;
 import com.ticket.core.domain.entity.UserRole;
+import com.ticket.core.domain.vo.LoginResultVO;
 import com.ticket.core.mapper.UserMapper;
 import com.ticket.core.mapper.UserRoleMapper;
 import io.swagger.v3.oas.annotations.Operation;
@@ -26,7 +27,6 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -76,25 +76,26 @@ public class AdminAuthController {
     @Operation(summary = "管理员注册", description = "需要持有 ADMIN_INVITE_CODE 环境变量配置的邀请码。注册成功直接返回 JWT，无需再调登录。")
     @SecurityRequirements({})
     @PostMapping("/register")
-    public Result<Map<String, Object>> register(@Valid @RequestBody AdminRegisterRequest req,
-                                                HttpServletRequest httpReq) {
+    public Result<LoginResultVO> register(@Valid @RequestBody AdminRegisterRequest req,
+                                          HttpServletRequest httpReq) {
         if (!constantTimeEquals(sha256(req.getInviteCode()), inviteCodeHash)) {
             log.warn("[ADMIN-AUTH] 注册失败:邀请码错误 username={} ip={}",
                     req.getUsername(), clientIp(httpReq));
             throw new BusinessException(ErrorCode.FORBIDDEN, "邀请码错误");
         }
         User user = adminAuthService.registerAdmin(req);
-        String token = jwtTokenProvider.generateToken(user.getId(), user.getUsername(), List.of(ROLE_ADMIN));
+        List<String> roles = List.of(ROLE_ADMIN);
+        String token = jwtTokenProvider.generateToken(user.getId(), user.getUsername(), roles);
         log.info("[ADMIN-AUTH] 管理员注册成功 userId={} username={} ip={}",
                 user.getId(), user.getUsername(), clientIp(httpReq));
-        return Result.success(Map.of("token", token, "userId", user.getId(), "roles", List.of(ROLE_ADMIN)));
+        return Result.success(LoginResultVO.of(token, user.getId(), roles));
     }
 
     @Operation(summary = "管理员登录", description = "用户名+密码校验，且 user_role 中必须含 ADMIN。返回的 token 粘到 Swagger UI 右上角 Authorize 按钮即可调用其他管理端接口。")
     @SecurityRequirements({})
     @PostMapping("/login")
-    public Result<Map<String, Object>> login(@Valid @RequestBody AdminLoginRequest req,
-                                             HttpServletRequest httpReq) {
+    public Result<LoginResultVO> login(@Valid @RequestBody AdminLoginRequest req,
+                                       HttpServletRequest httpReq) {
         String ip = clientIp(httpReq);
         User user = userMapper.selectByUsername(req.getUsername());
         if (user == null || !passwordEncoder.matches(req.getPassword(), user.getPasswordHash())) {
@@ -118,7 +119,7 @@ public class AdminAuthController {
         String token = jwtTokenProvider.generateToken(user.getId(), user.getUsername(), roles);
         log.info("[ADMIN-AUTH] 管理员登录成功 userId={} username={} ip={}",
                 user.getId(), req.getUsername(), ip);
-        return Result.success(Map.of("token", token, "userId", user.getId(), "roles", roles));
+        return Result.success(LoginResultVO.of(token, user.getId(), roles));
     }
 
     /**

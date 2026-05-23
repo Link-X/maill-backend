@@ -10,6 +10,7 @@ import com.ticket.common.result.Result;
 import com.ticket.common.util.SnowflakeIdGenerator;
 import com.ticket.core.domain.entity.User;
 import com.ticket.core.domain.entity.UserRole;
+import com.ticket.core.domain.vo.LoginResultVO;
 import com.ticket.core.mapper.UserMapper;
 import com.ticket.core.mapper.UserRoleMapper;
 import com.ticket.user.config.NoLogin;
@@ -26,7 +27,6 @@ import javax.servlet.http.HttpServletRequest;
 import javax.validation.Valid;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -63,7 +63,7 @@ public class AuthController {
     @RateLimit(type = LimitType.IP,     limit = 30,  window = 60, message = "IP 请求过于频繁，请稍后再试")
     @RateLimit(type = LimitType.GLOBAL, limit = 50,  window = 1,  message = "系统繁忙，请稍后重试")
     @PostMapping("/register")
-    public Result<Map<String, Object>> register(@Valid @RequestBody RegisterRequest req) {
+    public Result<LoginResultVO> register(@Valid @RequestBody RegisterRequest req) {
         if (userMapper.selectByUsername(req.getUsername()) != null) {
             throw new BusinessException(ErrorCode.PARAM_ERROR, "用户名已存在");
         }
@@ -84,8 +84,9 @@ public class AuthController {
         role.setRole("USER");
         userRoleMapper.insert(role);
 
-        String token = jwtTokenProvider.generateToken(user.getId(), user.getUsername(), List.of("USER"));
-        return Result.success(Map.of("token", token, "userId", user.getId()));
+        List<String> roles = List.of("USER");
+        String token = jwtTokenProvider.generateToken(user.getId(), user.getUsername(), roles);
+        return Result.success(LoginResultVO.of(token, user.getId(), roles));
     }
 
     @Operation(summary = "用户登录", description = "返回的 token 粘到 Swagger UI 右上角 Authorize 按钮即可调用其它接口")
@@ -95,8 +96,8 @@ public class AuthController {
     @RateLimit(type = LimitType.IP,     limit = 30,  window = 60, message = "IP 请求过于频繁，请稍后再试")
     @RateLimit(type = LimitType.GLOBAL, limit = 50,  window = 1,  message = "系统繁忙，请稍后重试")
     @PostMapping("/login")
-    public Result<Map<String, Object>> login(@Valid @RequestBody LoginRequest req,
-                                             HttpServletRequest httpReq) {
+    public Result<LoginResultVO> login(@Valid @RequestBody LoginRequest req,
+                                       HttpServletRequest httpReq) {
         String ip = clientIp(httpReq);
         User user = userMapper.selectByUsername(req.getUsername());
         if (user == null || !passwordEncoder.matches(req.getPassword(), user.getPasswordHash())) {
@@ -108,7 +109,7 @@ public class AuthController {
                 .collect(Collectors.toList());
         String token = jwtTokenProvider.generateToken(user.getId(), user.getUsername(), roles);
         log.info("[AUTH] 登录成功 userId={} username={} ip={}", user.getId(), req.getUsername(), ip);
-        return Result.success(Map.of("token", token, "userId", user.getId(), "roles", roles));
+        return Result.success(LoginResultVO.of(token, user.getId(), roles));
     }
 
     /**
