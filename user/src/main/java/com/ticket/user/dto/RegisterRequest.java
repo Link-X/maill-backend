@@ -1,24 +1,21 @@
 package com.ticket.user.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
 import javax.validation.constraints.NotBlank;
 import javax.validation.constraints.Pattern;
 import javax.validation.constraints.Size;
 
+@Schema(description = "用户注册")
 @Data
 public class RegisterRequest {
-    @NotBlank(message = "用户名不能为空")
-    @Size(min = 3, max = 32, message = "用户名长度需在 3-32 字符之间")
-    @Pattern(regexp = "^[a-zA-Z0-9_]+$", message = "用户名只能包含字母、数字、下划线")
-    private String username;
+    @Schema(description = "用户名 3-32 字符，仅字母/数字/下划线", example = "testuser", requiredMode = Schema.RequiredMode.REQUIRED)
+    @NotBlank @Size(min = 3, max = 32) @Pattern(regexp = "^[a-zA-Z0-9_]+$") private String username;
 
-    /** 密码: 至少 8 字符,需包含字母和数字 */
-    @NotBlank(message = "密码不能为空")
-    @Size(min = 8, max = 64, message = "密码长度需在 8-64 字符之间")
-    @Pattern(regexp = "^(?=.*[A-Za-z])(?=.*\\d).+$", message = "密码必须包含字母和数字")
-    private String password;
+    @Schema(description = "密码 8-64 字符，必须含字母和数字", example = "test12345", requiredMode = Schema.RequiredMode.REQUIRED)
+    @NotBlank @Size(min = 8, max = 64) @Pattern(regexp = "^(?=.*[A-Za-z])(?=.*\\d).+$") private String password;
 
-    private String phone;
-    private String email;
+    @Schema(description = "手机号（可选）", example = "13800000001") private String phone;
+    @Schema(description = "邮箱（可选）", example = "test@example.com") private String email;
 }

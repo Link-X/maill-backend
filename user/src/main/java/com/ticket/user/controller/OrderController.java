@@ -18,6 +18,9 @@ import com.ticket.user.dto.CancelOrderRequest;
 import com.ticket.user.dto.OrderListRequest;
 import com.ticket.user.dto.RefundTicketRequest;
 import com.ticket.user.dto.SubmitOrderRequest;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
@@ -28,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 
 @Slf4j
+@Tag(name = "订单（用户端）", description = "下单、取消、退款、查询。提交订单走 Redis Lua 原子锁座 + 同步建单；超时订单 5 分钟后由 MQ 自动取消")
 @RestController
 @RequestMapping("/api/order")
 public class OrderController {
@@ -56,6 +60,7 @@ public class OrderController {
     @RateLimit(type = LimitType.IP,     limit = 30,  window = 60, message = "IP 请求过于频繁，请稍后再试")
     @RateLimit(type = LimitType.USER,   limit = 5,   window = 60, message = "操作太频繁，请稍后再试")
     @RateLimit(type = LimitType.GLOBAL, limit = 50,  window = 1,  message = "系统繁忙，请稍后重试")
+    @Operation(summary = "锁座 + 建单", description = "流程：限购校验 → Redis Lua 批量锁座（任一失败全量回滚） → 同步建单 → 发超时 MQ。直接返回完整订单（含演出/场次/座位/总价/过期时间），前端可显示倒计时。受多维度限流保护")
     @PostMapping("/submit")
     public Result<OrderStatusResponse> submit(@Valid @RequestBody SubmitOrderRequest req) {
         Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
@@ -91,6 +96,7 @@ public class OrderController {
         return Result.success(orderQueryService.buildStatusResponse(order));
     }
 
+    @Operation(summary = "取消订单", description = "status=0 未支付：同步取消，立即释放座位；status=1/5 已支付/部分退款：发起退款（异步，距演出开始 <24h 拒绝）；其他状态拒绝。仅订单本人可操作")
     @PostMapping("/cancel")
     public Result<Void> cancel(@Valid @RequestBody CancelOrderRequest req) {
         Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
@@ -113,8 +119,10 @@ public class OrderController {
         return Result.success(null);
     }
 
+    @Operation(summary = "订单详情", description = "返回完整 OrderStatusResponse（含演出名/场馆/城市/地址/票券列表）。仅订单本人可查")
     @GetMapping("/orderDetails")
-    public Result<OrderStatusResponse> detail(@RequestParam String orderNo) {
+    public Result<OrderStatusResponse> detail(
+            @Parameter(description = "订单号 orderNo", required = true) @RequestParam String orderNo) {
         Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
         Order order = orderQueryService.getByOrderNo(orderNo);
         if (order == null) {
@@ -126,6 +134,7 @@ public class OrderController {
         return Result.success(orderQueryService.buildStatusResponse(order));
     }
 
+    @Operation(summary = "单票退款", description = "支持已支付/部分退款订单。已核销或已退款的票拒绝；距演出开始 <24h 拒绝。多座位订单的单票退款会更新订单为部分退款状态")
     @PostMapping("/refundTicket")
     public Result<Void> refundTicket(@Valid @RequestBody RefundTicketRequest req) {
         Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
@@ -133,6 +142,7 @@ public class OrderController {
         return Result.success(null);
     }
 
+    @Operation(summary = "我的订单分页列表", description = "返回当前登录用户的订单。支持 status / 日期范围筛选。每条 item 是 OrderStatusResponse（含演出/场次/票券）")
     @PostMapping("/list")
     public Result<?> list(@Valid @RequestBody OrderListRequest req) {
         Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();

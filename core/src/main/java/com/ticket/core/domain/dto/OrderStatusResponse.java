@@ -1,74 +1,41 @@
 package com.ticket.core.domain.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
-/**
- * 订单状态响应 DTO
- */
+@Schema(description = "订单状态响应：含订单本身 + 演出/场次/城市/票券完整信息")
 @Data
 public class OrderStatusResponse {
 
-    /**
-     * 票券信息
-     */
+    @Schema(description = "票券信息")
     @Data
     public static class TicketInfo {
-        /** 票券编号 */
-        private String ticketNo;
-        /** 入场二维码（核销时扫描） */
-        private String qrCode;
-        /**
-         * 票券状态
-         * 0 - 未使用
-         * 1 - 已核销
-         * 2 - 已作废（退款后失效）
-         */
+        @Schema(description = "票券编号（8 位友好票号）", example = "GH37KX2P") private String ticketNo;
+        @Schema(description = "入场二维码 UUID") private String qrCode;
+        @Schema(description = "票券状态 0=未使用 1=已核销 2=已作废（退款）", example = "0", allowableValues = {"0","1","2"})
         private Integer status;
-        /** 核销时间，status=1 时有值 */
-        private LocalDateTime verifyTime;
+        @Schema(description = "核销时间，status=1 时有值") private LocalDateTime verifyTime;
     }
 
-    /** 订单 ID */
-    private Long orderId;
-    /** 订单号（雪花算法生成，对外展示用） */
-    private String orderNo;
-    /**
-     * 订单状态
-     * 0 - 待支付（创建后 5 分钟内有效，超时自动取消）
-     * 1 - 已支付
-     * 2 - 已取消（未支付主动取消 或 超时自动取消）
-     * 3 - 退款中（已支付订单发起取消，等待退款处理）
-     * 4 - 已退款
-     */
-    private Integer status;
-    /** 订单总金额 */
-    private BigDecimal totalAmount;
-    /** 订单创建时间 */
-    private LocalDateTime createTime;
-    /** 支付时间，status >= 1 时有值 */
-    private LocalDateTime payTime;
-    /** 订单过期时间，status=0 时有效，前端可据此展示支付倒计时 */
-    private LocalDateTime expireTime;
-    /** 座位信息列表，如 ["1排01座", "1排02座"] */
-    private List<String> seatInfos;
-    /** 票券列表，支付成功后异步生成，status=1 时可用 */
-    private List<TicketInfo> tickets;
+    @Schema(description = "订单 ID", example = "1") private Long orderId;
+    @Schema(description = "订单号（雪花 ID）", example = "704179544755671040") private String orderNo;
+    @Schema(description = "订单状态 0=待支付 1=已支付 2=已取消 3=退款中 4=已退款 5=部分退款",
+            example = "1", allowableValues = {"0","1","2","3","4","5"}) private Integer status;
+    @Schema(description = "订单总金额", example = "780.00") private BigDecimal totalAmount;
+    @Schema(description = "创建时间") private LocalDateTime createTime;
+    @Schema(description = "支付时间，status>=1 时有值") private LocalDateTime payTime;
+    @Schema(description = "过期时间，status=0 时前端可据此显示支付倒计时") private LocalDateTime expireTime;
+    @Schema(description = "座位信息字符串列表", example = "[\"1排01座\", \"1排02座\"]") private List<String> seatInfos;
+    @Schema(description = "票券列表（支付成功后异步生成）") private List<TicketInfo> tickets;
 
-    /** 演出名称 */
-    private String showName;
-    /** 演出场馆 */
-    private String showVenue;
-    /** 演出城市 code（GB/T 行政区划代码） */
-    private String showCityCode;
-    /** 演出城市名（前端无需再查 city 表） */
-    private String showCityName;
-    /** 演出详细地址 */
-    private String showAddress;
-    /** 场次名称 */
-    private String sessionName;
-    /** 场次开始时间 */
-    private LocalDateTime sessionStartTime;
+    @Schema(description = "演出名称", example = "周杰伦嘉年华世界巡回演唱会") private String showName;
+    @Schema(description = "演出场馆", example = "上海梅赛德斯奔驰文化中心") private String showVenue;
+    @Schema(description = "演出城市代码", example = "310000") private String showCityCode;
+    @Schema(description = "演出城市名（冗余）", example = "上海") private String showCityName;
+    @Schema(description = "演出详细地址", example = "浦东新区世博大道 1200 号") private String showAddress;
+    @Schema(description = "场次名称", example = "上海 2026-06-01") private String sessionName;
+    @Schema(description = "场次开始时间", example = "2026-06-01T19:00:00") private LocalDateTime sessionStartTime;
 }

@@ -1,5 +1,6 @@
 package com.ticket.admin.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
 import javax.validation.constraints.Min;
@@ -7,26 +8,16 @@ import javax.validation.constraints.NotBlank;
 import javax.validation.constraints.NotNull;
 import javax.validation.constraints.Size;
 
+@Schema(description = "更新场地")
 @Data
 public class RoomUpdateRequest {
-
-    @NotNull(message = "id 不能为空")
-    private Long id;
-
-    @NotBlank(message = "场地名称不能为空")
-    @Size(max = 128, message = "场地名称最长 128 字符")
-    private String name;
-
-    @NotBlank(message = "所属场馆不能为空")
-    @Size(max = 256, message = "场馆名最长 256 字符")
-    private String venue;
-
-    @Min(value = 0, message = "rowCount 不能为负")
-    private Integer rowCount;
-
-    @Min(value = 0, message = "colCount 不能为负")
-    private Integer colCount;
-
-    @Size(max = 512, message = "备注最长 512 字符")
-    private String description;
+    @Schema(description = "场地 ID", example = "1", requiredMode = Schema.RequiredMode.REQUIRED)
+    @NotNull private Long id;
+    @Schema(description = "场地名称", example = "标准演出场地", requiredMode = Schema.RequiredMode.REQUIRED)
+    @NotBlank @Size(max = 128) private String name;
+    @Schema(description = "所属场馆", example = "国家体育场鸟巢", requiredMode = Schema.RequiredMode.REQUIRED)
+    @NotBlank @Size(max = 256) private String venue;
+    @Schema(description = "行数", example = "20") @Min(value = 0) private Integer rowCount;
+    @Schema(description = "列数", example = "20") @Min(value = 0) private Integer colCount;
+    @Schema(description = "备注") @Size(max = 512) private String description;
 }

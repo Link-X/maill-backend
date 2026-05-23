@@ -12,6 +12,9 @@ import com.ticket.core.domain.entity.User;
 import com.ticket.core.domain.entity.UserRole;
 import com.ticket.core.mapper.UserMapper;
 import com.ticket.core.mapper.UserRoleMapper;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirements;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -34,6 +37,7 @@ import java.util.stream.Collectors;
  * 登录:校验密码 + user_role 中含 ADMIN,签发带 roles 的 JWT。
  */
 @Slf4j
+@Tag(name = "管理员鉴权", description = "管理员账号的注册、登录、登出。注册需邀请码（运维通过 ADMIN_INVITE_CODE 环境变量注入）；登录成功返回 JWT，所有 /api/admin/** 接口需在 Header 携带 Bearer token")
 @RestController
 @RequestMapping("/api/admin/auth")
 public class AdminAuthController {
@@ -69,6 +73,8 @@ public class AdminAuthController {
         this.inviteCodeHash = sha256(inviteCode);
     }
 
+    @Operation(summary = "管理员注册", description = "需要持有 ADMIN_INVITE_CODE 环境变量配置的邀请码。注册成功直接返回 JWT，无需再调登录。")
+    @SecurityRequirements({})
     @PostMapping("/register")
     public Result<Map<String, Object>> register(@Valid @RequestBody AdminRegisterRequest req,
                                                 HttpServletRequest httpReq) {
@@ -84,6 +90,8 @@ public class AdminAuthController {
         return Result.success(Map.of("token", token, "userId", user.getId(), "roles", List.of(ROLE_ADMIN)));
     }
 
+    @Operation(summary = "管理员登录", description = "用户名+密码校验，且 user_role 中必须含 ADMIN。返回的 token 粘到 Swagger UI 右上角 Authorize 按钮即可调用其他管理端接口。")
+    @SecurityRequirements({})
     @PostMapping("/login")
     public Result<Map<String, Object>> login(@Valid @RequestBody AdminLoginRequest req,
                                              HttpServletRequest httpReq) {
@@ -117,6 +125,7 @@ public class AdminAuthController {
      * 登出:把当前 token 加入 Redis 黑名单。需要携带有效 token。
      * 拦截器对此接口要求 ROLE_ADMIN,正确登录的管理员才能登出。
      */
+    @Operation(summary = "管理员登出", description = "把当前 token 的 jti 加入 Redis 黑名单，剩余有效期内该 token 即失效。需携带有效 token。")
     @PostMapping("/logout")
     public Result<Void> logout(HttpServletRequest httpReq) {
         String header = httpReq.getHeader("Authorization");

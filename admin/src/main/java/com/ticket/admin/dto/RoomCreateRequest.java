@@ -1,29 +1,20 @@
 package com.ticket.admin.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
 import javax.validation.constraints.Min;
 import javax.validation.constraints.NotBlank;
 import javax.validation.constraints.Size;
 
+@Schema(description = "创建场地（座位布局模板）")
 @Data
 public class RoomCreateRequest {
-
-    @NotBlank(message = "场地名称不能为空")
-    @Size(max = 128, message = "场地名称最长 128 字符")
-    private String name;
-
-    @NotBlank(message = "所属场馆不能为空")
-    @Size(max = 256, message = "场馆名最长 256 字符")
-    private String venue;
-
-    /** 座位网格行数；0 表示暂未规划 */
-    @Min(value = 0, message = "rowCount 不能为负")
-    private Integer rowCount;
-
-    @Min(value = 0, message = "colCount 不能为负")
-    private Integer colCount;
-
-    @Size(max = 512, message = "备注最长 512 字符")
-    private String description;
+    @Schema(description = "场地名称", example = "标准演出场地", requiredMode = Schema.RequiredMode.REQUIRED)
+    @NotBlank @Size(max = 128) private String name;
+    @Schema(description = "所属场馆", example = "国家体育场鸟巢", requiredMode = Schema.RequiredMode.REQUIRED)
+    @NotBlank @Size(max = 256) private String venue;
+    @Schema(description = "座位网格行数；0 表示暂未规划", example = "20") @Min(value = 0) private Integer rowCount;
+    @Schema(description = "座位网格列数", example = "20") @Min(value = 0) private Integer colCount;
+    @Schema(description = "备注", example = "20行×20列，前 10 行 VIP") @Size(max = 512) private String description;
 }

@@ -1,29 +1,40 @@
 package com.ticket.core.domain.vo.report;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import java.math.BigDecimal;
 
-/** /api/admin/report/overview 响应 */
+@Schema(description = "营收概览（首页 KPI 卡片）")
 @Data
 public class OverviewVO {
-    /** 营收（status=1/5 订单总额） */
+
+    @Schema(description = "营收金额；仅 status=1/5 订单 totalAmount 之和", example = "128400.00")
     private BigDecimal revenue;
-    /** 已支付订单数 */
+
+    @Schema(description = "已支付订单数（status=1 或 5）", example = "156")
     private Integer orderCount;
-    /** 待支付订单数 status=0 */
+
+    @Schema(description = "待支付订单数（status=0）", example = "12")
     private Integer pendingOrderCount;
-    /** 退款总额 */
+
+    @Schema(description = "退款总额（order.refund_amount 累计）", example = "2280.00")
     private BigDecimal refundAmount;
-    /** 退款订单数 status=3/4/5 */
+
+    @Schema(description = "退款订单数（status 3/4/5 合计）", example = "6")
     private Integer refundCount;
-    /** 已售票数 */
+
+    @Schema(description = "已售票数；仅 status=1/5 订单的 order_item 行数", example = "412")
     private Integer ticketSoldCount;
-    /** 已核销票数 */
+
+    @Schema(description = "已核销票数（ticket.status=1）", example = "358")
     private Integer ticketVerifiedCount;
-    /** 核销率 = verified / sold */
+
+    @Schema(description = "核销率 = verified / sold，0~1", example = "0.8689")
     private Double verifyRate;
-    /** 营收与上一等长周期对比 */
+
+    @Schema(description = "营收环比（与上一等长周期相比），0.15 = 增长 15%，负值代表下降", example = "0.142")
     private Double revenueDeltaPct;
-    /** 订单数与上一等长周期对比 */
+
+    @Schema(description = "订单数环比", example = "0.084")
     private Double orderCountDeltaPct;
 }
