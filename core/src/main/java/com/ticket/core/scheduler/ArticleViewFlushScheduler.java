@@ -3,12 +3,11 @@ package com.ticket.core.scheduler;
 import com.ticket.common.constant.RedisKeys;
 import com.ticket.core.mapper.ArticleMapper;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-import java.time.Duration;
 import java.util.Map;
 
 /**
@@ -20,15 +19,11 @@ import java.util.Map;
  * HINCRBY -delta 是原子操作：即使期间有新的浏览 +1,只会减去本次回写的部分,
  * 新增量留在 Redis 等待下次 flush,不会丢失。
  *
- * 用 SET NX 分布式锁避免 admin/user 双实例同时执行同一批回写。
+ * 多实例互斥由 @SchedulerLock(ShedLock)统一处理,无需手动写 SETNX。
  */
 @Slf4j
 @Component
-@ConditionalOnProperty(name = "scheduler.enabled", havingValue = "true")
 public class ArticleViewFlushScheduler {
-
-    private static final String LOCK_KEY = "article:view:flush:lock";
-    private static final Duration LOCK_TTL = Duration.ofMinutes(4);
 
     private final StringRedisTemplate redis;
     private final ArticleMapper articleMapper;
@@ -39,10 +34,9 @@ public class ArticleViewFlushScheduler {
     }
 
     @Scheduled(fixedDelay = 5 * 60 * 1000, initialDelay = 60 * 1000)
+    @SchedulerLock(name = "ArticleViewFlushScheduler.flush",
+            lockAtLeastFor = "PT1M", lockAtMostFor = "PT4M")
     public void flush() {
-        Boolean locked = redis.opsForValue().setIfAbsent(LOCK_KEY, "1", LOCK_TTL);
-        if (locked == null || !locked) return; // 另一实例正在执行
-
         try {
             String bufferKey = RedisKeys.articleViewBuffer();
             Map<Object, Object> all = redis.opsForHash().entries(bufferKey);
@@ -74,8 +68,6 @@ public class ArticleViewFlushScheduler {
             log.info("[ARTICLE-VIEW-FLUSH] flushed {} articles", success);
         } catch (Exception e) {
             log.error("[ARTICLE-VIEW-FLUSH] unexpected error", e);
-        } finally {
-            redis.delete(LOCK_KEY);
         }
     }
 }

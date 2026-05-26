@@ -7,7 +7,7 @@ import com.ticket.core.mapper.ShowSessionMapper;
 import com.ticket.core.service.SeatStructureCache;
 import com.ticket.core.service.SeatInventoryService;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -29,7 +29,6 @@ import java.util.List;
  */
 @Slf4j
 @Component
-@ConditionalOnProperty(name = "scheduler.enabled", havingValue = "true")
 public class SessionLifecycleScheduler {
 
     private final ShowSessionMapper showSessionMapper;
@@ -46,6 +45,7 @@ public class SessionLifecycleScheduler {
 
     /** 每分钟开头执行 */
     @Scheduled(cron = "0 * * * * ?")
+    @SchedulerLock(name = "SessionLifecycleScheduler.tick", lockAtLeastFor = "PT30S", lockAtMostFor = "PT55S")
     public void tick() {
         LocalDateTime now = LocalDateTime.now();
         try {

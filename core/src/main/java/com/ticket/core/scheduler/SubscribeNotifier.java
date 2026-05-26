@@ -6,7 +6,7 @@ import com.ticket.core.mapper.ShowSubscribeMapper;
 import com.ticket.core.mapper.ShowSubscribeSessionNotifyMapper;
 import com.ticket.core.service.MessageService;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -32,7 +32,6 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Component
-@ConditionalOnProperty(name = "scheduler.enabled", havingValue = "true")
 public class SubscribeNotifier {
 
     private static final DateTimeFormatter HM = DateTimeFormatter.ofPattern("HH:mm");
@@ -51,6 +50,7 @@ public class SubscribeNotifier {
     }
 
     @Scheduled(cron = "0 * * * * ?")
+    @SchedulerLock(name = "SubscribeNotifier.scanPre", lockAtLeastFor = "PT30S", lockAtMostFor = "PT55S")
     public void scanPre() {
         LocalDateTime now = LocalDateTime.now();
         List<PendingSubscribeNotify> pending = subscribeMapper.selectPendingPreBySession(now);
@@ -92,6 +92,7 @@ public class SubscribeNotifier {
     }
 
     @Scheduled(cron = "0 * * * * ?")
+    @SchedulerLock(name = "SubscribeNotifier.scanOpen", lockAtLeastFor = "PT30S", lockAtMostFor = "PT55S")
     public void scanOpen() {
         LocalDateTime now = LocalDateTime.now();
         List<PendingSubscribeNotify> pending = subscribeMapper.selectPendingOpenBySession(now);
