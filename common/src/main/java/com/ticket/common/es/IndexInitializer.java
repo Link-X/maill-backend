@@ -1,18 +1,17 @@
 package com.ticket.common.es;
 
+import co.elastic.clients.elasticsearch.ElasticsearchClient;
+import co.elastic.clients.elasticsearch.indices.ExistsRequest;
 import com.ticket.common.es.index.ArticleIndexMapping;
 import com.ticket.common.es.index.ArtistIndexMapping;
 import com.ticket.common.es.index.EsIndices;
 import com.ticket.common.es.index.ShowIndexMapping;
 import lombok.extern.slf4j.Slf4j;
-import org.elasticsearch.client.RequestOptions;
-import org.elasticsearch.client.RestHighLevelClient;
-import org.elasticsearch.client.indices.CreateIndexRequest;
-import org.elasticsearch.client.indices.GetIndexRequest;
-import org.elasticsearch.xcontent.XContentType;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
+
+import java.io.StringReader;
 
 /**
  * 应用启动时确保 ES 索引存在(不存在则创建,存在跳过)
@@ -22,9 +21,9 @@ import org.springframework.stereotype.Component;
 @Component
 public class IndexInitializer implements ApplicationRunner {
 
-    private final RestHighLevelClient client;
+    private final ElasticsearchClient client;
 
-    public IndexInitializer(RestHighLevelClient client) {
+    public IndexInitializer(ElasticsearchClient client) {
         this.client = client;
     }
 
@@ -41,14 +40,15 @@ public class IndexInitializer implements ApplicationRunner {
     }
 
     private void ensureIndex(String name, String mappingJson) throws Exception {
-        GetIndexRequest exists = new GetIndexRequest(name);
-        if (client.indices().exists(exists, RequestOptions.DEFAULT)) {
+        boolean exists = client.indices().exists(ExistsRequest.of(b -> b.index(name))).value();
+        if (exists) {
             log.info("[ES] 索引已存在,跳过: {}", name);
             return;
         }
-        CreateIndexRequest create = new CreateIndexRequest(name);
-        create.source(mappingJson, XContentType.JSON);
-        client.indices().create(create, RequestOptions.DEFAULT);
+        // withJson 接收完整的 create index body（settings + mappings），与旧 API 的 source(json) 行为一致
+        client.indices().create(c -> c
+                .index(name)
+                .withJson(new StringReader(mappingJson)));
         log.info("[ES] 索引创建成功: {}", name);
     }
 }

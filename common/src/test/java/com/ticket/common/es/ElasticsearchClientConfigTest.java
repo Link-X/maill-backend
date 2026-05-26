@@ -1,10 +1,9 @@
 package com.ticket.common.es;
 
+import co.elastic.clients.elasticsearch.ElasticsearchClient;
+import co.elastic.clients.elasticsearch.core.InfoResponse;
+import co.elastic.clients.elasticsearch.indices.ExistsRequest;
 import com.ticket.common.es.index.EsIndices;
-import org.elasticsearch.client.RequestOptions;
-import org.elasticsearch.client.RestHighLevelClient;
-import org.elasticsearch.client.core.MainResponse;
-import org.elasticsearch.client.indices.GetIndexRequest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,13 +29,15 @@ class ElasticsearchClientConfigTest {
     static class TestApp {}
 
     @Autowired
-    RestHighLevelClient client;
+    ElasticsearchClient client;
 
     @Test
     void should_ping_elasticsearch() throws Exception {
-        MainResponse info = client.info(RequestOptions.DEFAULT);
-        assertTrue(info.getVersion().getNumber().startsWith("7."),
-                "期望 ES 7.x,实际:" + info.getVersion().getNumber());
+        InfoResponse info = client.info();
+        String version = info.version().number();
+        // 升级到 ES 8 客户端,允许 7.x / 8.x
+        assertTrue(version.startsWith("7.") || version.startsWith("8."),
+                "期望 ES 7.x 或 8.x,实际:" + version);
     }
 
     @Test
@@ -47,6 +48,6 @@ class ElasticsearchClientConfigTest {
     }
 
     private boolean indexExists(String name) throws Exception {
-        return client.indices().exists(new GetIndexRequest(name), RequestOptions.DEFAULT);
+        return client.indices().exists(ExistsRequest.of(b -> b.index(name))).value();
     }
 }

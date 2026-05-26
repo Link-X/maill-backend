@@ -1,5 +1,6 @@
 package com.ticket.core.mq.consumer;
 
+import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ticket.common.es.index.EsIndices;
 import com.ticket.core.domain.entity.Article;
@@ -16,11 +17,6 @@ import com.ticket.core.mapper.ShowMapper;
 import com.ticket.core.mq.config.RabbitMQConfig;
 import com.ticket.core.mq.event.SearchSyncEvent;
 import lombok.extern.slf4j.Slf4j;
-import org.elasticsearch.action.delete.DeleteRequest;
-import org.elasticsearch.action.index.IndexRequest;
-import org.elasticsearch.client.RequestOptions;
-import org.elasticsearch.client.RestHighLevelClient;
-import org.elasticsearch.xcontent.XContentType;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Component;
 
@@ -37,7 +33,7 @@ public class SearchSyncConsumer {
 
     private static final DateTimeFormatter DTF = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-    private final RestHighLevelClient esClient;
+    private final ElasticsearchClient esClient;
     private final ObjectMapper objectMapper;
     private final ShowMapper showMapper;
     private final ShowArtistMapper showArtistMapper;
@@ -46,7 +42,7 @@ public class SearchSyncConsumer {
     private final CategoryMapper categoryMapper;
     private final CityMapper cityMapper;
 
-    public SearchSyncConsumer(RestHighLevelClient esClient,
+    public SearchSyncConsumer(ElasticsearchClient esClient,
                               ObjectMapper objectMapper,
                               ShowMapper showMapper,
                               ShowArtistMapper showArtistMapper,
@@ -95,8 +91,7 @@ public class SearchSyncConsumer {
     private void deleteDoc(String type, Long id) throws Exception {
         String index = indexFor(type);
         if (index == null) return;
-        DeleteRequest req = new DeleteRequest(index, String.valueOf(id));
-        esClient.delete(req, RequestOptions.DEFAULT);
+        esClient.delete(d -> d.index(index).id(String.valueOf(id)));
     }
 
     private String indexFor(String type) {
@@ -174,10 +169,9 @@ public class SearchSyncConsumer {
     }
 
     private void indexDoc(String index, Long id, Map<String, Object> doc) throws Exception {
-        String json = objectMapper.writeValueAsString(doc);
-        IndexRequest req = new IndexRequest(index)
+        esClient.index(i -> i
+                .index(index)
                 .id(String.valueOf(id))
-                .source(json, XContentType.JSON);
-        esClient.index(req, RequestOptions.DEFAULT);
+                .document(doc));
     }
 }

@@ -12,7 +12,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.BeanUtils;
 import org.springframework.web.bind.annotation.*;
 
-import javax.validation.Valid;
+import jakarta.validation.Valid;
 import java.util.List;
 
 @Tag(name = "Banner 管理", description = "首页 Banner / 运营位 CRUD,支持图片(MinIO URL)、跳转配置、定时上下架、拖拽排序")

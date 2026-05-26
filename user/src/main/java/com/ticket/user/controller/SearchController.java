@@ -1,21 +1,20 @@
 package com.ticket.user.controller;
 
+import co.elastic.clients.elasticsearch.ElasticsearchClient;
+import co.elastic.clients.elasticsearch._types.query_dsl.MultiMatchQuery;
+import co.elastic.clients.elasticsearch._types.query_dsl.Query;
+import co.elastic.clients.elasticsearch._types.query_dsl.TextQueryType;
+import co.elastic.clients.elasticsearch.core.SearchRequest;
+import co.elastic.clients.elasticsearch.core.SearchResponse;
+import co.elastic.clients.elasticsearch.core.search.Highlight;
+import co.elastic.clients.elasticsearch.core.search.HighlightField;
+import co.elastic.clients.elasticsearch.core.search.Hit;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ticket.common.es.index.EsIndices;
 import com.ticket.common.result.Result;
 import com.ticket.user.config.NoLogin;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import org.elasticsearch.action.search.SearchRequest;
-import org.elasticsearch.action.search.SearchResponse;
-import org.elasticsearch.client.RequestOptions;
-import org.elasticsearch.client.RestHighLevelClient;
-import org.elasticsearch.index.query.MultiMatchQueryBuilder;
-import org.elasticsearch.index.query.QueryBuilders;
-import org.elasticsearch.search.SearchHit;
-import org.elasticsearch.search.builder.SearchSourceBuilder;
-import org.elasticsearch.search.fetch.subphase.highlight.HighlightBuilder;
-import org.elasticsearch.search.fetch.subphase.highlight.HighlightField;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
@@ -31,11 +30,11 @@ import java.util.*;
 public class SearchController {
 
     private static final int HISTORY_MAX = 10;
-    private final RestHighLevelClient esClient;
+    private final ElasticsearchClient esClient;
     private final ObjectMapper objectMapper;
     private final StringRedisTemplate redis;
 
-    public SearchController(RestHighLevelClient esClient,
+    public SearchController(ElasticsearchClient esClient,
                             ObjectMapper objectMapper,
                             StringRedisTemplate redis) {
         this.esClient = esClient;
@@ -51,8 +50,8 @@ public class SearchController {
             @RequestParam(defaultValue = "20") Integer size) throws Exception {
         saveHistory(kw);
         return Result.success(search(EsIndices.SHOW, kw, page, size,
-                new String[]{"name", "name.kw", "description", "venue", "category_name", "city_name"},
-                new String[]{"name", "description", "venue"}));
+                Arrays.asList("name", "name.kw", "description", "venue", "category_name", "city_name"),
+                Arrays.asList("name", "description", "venue")));
     }
 
     @Operation(summary = "搜索艺人")
@@ -63,8 +62,8 @@ public class SearchController {
             @RequestParam(defaultValue = "20") Integer size) throws Exception {
         saveHistory(kw);
         return Result.success(search(EsIndices.ARTIST, kw, page, size,
-                new String[]{"name", "stage_name", "nationality", "tags", "bio"},
-                new String[]{"name", "stage_name", "bio"}));
+                Arrays.asList("name", "stage_name", "nationality", "tags", "bio"),
+                Arrays.asList("name", "stage_name", "bio")));
     }
 
     @Operation(summary = "搜索资讯")
@@ -75,8 +74,8 @@ public class SearchController {
             @RequestParam(defaultValue = "20") Integer size) throws Exception {
         saveHistory(kw);
         return Result.success(search(EsIndices.ARTICLE, kw, page, size,
-                new String[]{"title", "summary", "content", "author"},
-                new String[]{"title", "summary"}));
+                Arrays.asList("title", "summary", "content", "author"),
+                Arrays.asList("title", "summary")));
     }
 
     @Operation(summary = "聚合搜索(每类 Top 5)")
@@ -85,14 +84,14 @@ public class SearchController {
         saveHistory(kw);
         Map<String, Object> r = new HashMap<>();
         r.put("show", search(EsIndices.SHOW, kw, 1, 5,
-                new String[]{"name", "description", "venue", "category_name", "city_name"},
-                new String[]{"name", "description", "venue"}));
+                Arrays.asList("name", "description", "venue", "category_name", "city_name"),
+                Arrays.asList("name", "description", "venue")));
         r.put("artist", search(EsIndices.ARTIST, kw, 1, 5,
-                new String[]{"name", "stage_name", "tags", "bio"},
-                new String[]{"name", "stage_name", "bio"}));
+                Arrays.asList("name", "stage_name", "tags", "bio"),
+                Arrays.asList("name", "stage_name", "bio")));
         r.put("article", search(EsIndices.ARTICLE, kw, 1, 5,
-                new String[]{"title", "summary", "content"},
-                new String[]{"title", "summary"}));
+                Arrays.asList("title", "summary", "content"),
+                Arrays.asList("title", "summary")));
         return Result.success(r);
     }
 
@@ -137,39 +136,53 @@ public class SearchController {
     }
 
     /** 通用 ES 查询：multi_match + 高亮 + 分页 */
+    @SuppressWarnings({"unchecked", "rawtypes"})
     private Map<String, Object> search(String index, String kw, int page, int size,
-                                       String[] searchFields, String[] highlightFields) throws Exception {
-        SearchRequest req = new SearchRequest(index);
-        SearchSourceBuilder ssb = new SearchSourceBuilder();
+                                       List<String> searchFields, List<String> highlightFields) throws Exception {
+        // 构造 query：空 kw → match_all，否则 multi_match best_fields
+        Query query;
         if (kw == null || kw.trim().isEmpty()) {
-            ssb.query(QueryBuilders.matchAllQuery());
+            query = Query.of(q -> q.matchAll(m -> m));
         } else {
-            MultiMatchQueryBuilder mm = QueryBuilders.multiMatchQuery(kw, searchFields)
-                    .type(MultiMatchQueryBuilder.Type.BEST_FIELDS);
-            ssb.query(mm);
+            query = MultiMatchQuery.of(m -> m
+                    .query(kw)
+                    .fields(searchFields)
+                    .type(TextQueryType.BestFields)
+            )._toQuery();
         }
-        ssb.from((page - 1) * size).size(size);
 
-        if (highlightFields != null && highlightFields.length > 0) {
-            HighlightBuilder hb = new HighlightBuilder().preTags("<em>").postTags("</em>");
-            for (String f : highlightFields) hb.field(f);
-            ssb.highlighter(hb);
+        // 构造高亮
+        SearchRequest.Builder reqBuilder = new SearchRequest.Builder()
+                .index(index)
+                .query(query)
+                .from((page - 1) * size)
+                .size(size);
+
+        if (highlightFields != null && !highlightFields.isEmpty()) {
+            Map<String, HighlightField> hfMap = new LinkedHashMap<>();
+            for (String f : highlightFields) {
+                hfMap.put(f, HighlightField.of(h -> h));
+            }
+            reqBuilder.highlight(Highlight.of(h -> h
+                    .preTags("<em>")
+                    .postTags("</em>")
+                    .fields(hfMap)));
         }
-        req.source(ssb);
 
-        SearchResponse resp = esClient.search(req, RequestOptions.DEFAULT);
+        SearchResponse<Map> resp = esClient.search(reqBuilder.build(), Map.class);
+
         List<Map<String, Object>> items = new ArrayList<>();
-        for (SearchHit hit : resp.getHits().getHits()) {
-            Map<String, Object> src = hit.getSourceAsMap();
+        for (Hit<Map> hit : resp.hits().hits()) {
+            Map<String, Object> src = hit.source() != null
+                    ? new HashMap<>((Map<String, Object>) hit.source())
+                    : new HashMap<>();
             // 合并高亮字段到 _highlight，前端按字段名渲染
-            Map<String, HighlightField> hl = hit.getHighlightFields();
+            Map<String, List<String>> hl = hit.highlight();
             if (hl != null && !hl.isEmpty()) {
                 Map<String, String> highlight = new HashMap<>();
-                hl.forEach((k, v) -> {
-                    if (v == null || v.getFragments() == null) return;
-                    StringBuilder sb = new StringBuilder();
-                    for (org.elasticsearch.common.text.Text t : v.getFragments()) sb.append(t.toString());
-                    highlight.put(k, sb.toString());
+                hl.forEach((k, fragments) -> {
+                    if (fragments == null || fragments.isEmpty()) return;
+                    highlight.put(k, String.join("", fragments));
                 });
                 src.put("_highlight", highlight);
             }
@@ -177,7 +190,7 @@ public class SearchController {
         }
         Map<String, Object> r = new HashMap<>();
         r.put("list", items);
-        r.put("total", resp.getHits().getTotalHits() != null ? resp.getHits().getTotalHits().value : 0);
+        r.put("total", resp.hits().total() != null ? resp.hits().total().value() : 0);
         r.put("page", page);
         r.put("size", size);
         return r;

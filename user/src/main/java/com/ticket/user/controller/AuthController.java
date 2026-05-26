@@ -16,8 +16,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 
-import javax.servlet.http.HttpServletRequest;
-import javax.validation.Valid;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 
 @Slf4j
 @Tag(name = "用户鉴权", description = "用户端的注册、登录、登出。登录返回 JWT，需要鉴权的接口在 Header 携带 Bearer token")

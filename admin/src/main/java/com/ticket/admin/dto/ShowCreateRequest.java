@@ -3,8 +3,8 @@ package com.ticket.admin.dto;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
-import javax.validation.constraints.NotBlank;
-import javax.validation.constraints.Size;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import java.util.Map;
 
 @Schema(description = "创建演出；status 由后端固定为 1，id/createTime 由后端生成")
@@ -39,8 +39,8 @@ public class ShowCreateRequest {
 
     @Schema(description = "评价模式 0=无评价 1=所有可评 2=仅已观看;默认 1",
             example = "1", allowableValues = {"0","1","2"})
-    @javax.validation.constraints.Min(0)
-    @javax.validation.constraints.Max(2)
+    @jakarta.validation.constraints.Min(0)
+    @jakarta.validation.constraints.Max(2)
     private Integer reviewMode;
 
     @Schema(description = "开售时间(null=立即可购)") private java.time.LocalDateTime openSaleTime;

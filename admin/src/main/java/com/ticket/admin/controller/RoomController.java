@@ -15,7 +15,7 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.*;
 
-import javax.validation.Valid;
+import jakarta.validation.Valid;
 import java.util.List;
 
 @Tag(name = "场地模板", description = "场地是座位布局与价格区域的模板，创建场次时传 roomId 后端会自动复制座位和默认价格区域到该场次；同一场地可被多场次复用")

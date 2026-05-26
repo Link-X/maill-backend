@@ -17,7 +17,7 @@ import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
-import javax.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpServletResponse;
 
 /**
  * Admin 模块 Security 配置:无状态 JWT 认证 + 白名单模式。
@@ -49,24 +49,23 @@ public class AdminSecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
-            .cors().and()
-            .csrf().disable()
-            .sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS)
-            .and()
-            .exceptionHandling()
+            .cors(cors -> {})
+            .csrf(csrf -> csrf.disable())
+            .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            .exceptionHandling(eh -> eh
                 .authenticationEntryPoint(jsonEntryPoint())
                 .accessDeniedHandler(jsonAccessDeniedHandler())
-            .and()
+            )
             .authorizeHttpRequests(auth -> auth
-                .antMatchers("/error",
+                .requestMatchers("/error",
                         "/swagger-ui.html", "/swagger-ui/**",
                         "/v3/api-docs", "/v3/api-docs/**",
                         "/swagger-resources/**", "/webjars/**",
                         "/actuator/**").permitAll()
                 // admin 登录/注册:无 token 才能调
-                .antMatchers("/api/admin/auth/**").permitAll()
+                .requestMatchers("/api/admin/auth/**").permitAll()
                 // 其余 admin 接口必须有 ROLE_ADMIN
-                .antMatchers("/api/admin/**").hasRole(ROLE_ADMIN)
+                .requestMatchers("/api/admin/**").hasRole(ROLE_ADMIN)
                 .anyRequest().authenticated()
             )
             .addFilterBefore(

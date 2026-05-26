@@ -1,16 +1,18 @@
 package com.ticket.common.es;
 
+import co.elastic.clients.elasticsearch.ElasticsearchClient;
+import co.elastic.clients.json.jackson.JacksonJsonpMapper;
+import co.elastic.clients.transport.ElasticsearchTransport;
+import co.elastic.clients.transport.rest_client.RestClientTransport;
 import org.apache.http.HttpHost;
 import org.elasticsearch.client.RestClient;
 import org.elasticsearch.client.RestClientBuilder;
-import org.elasticsearch.client.RestHighLevelClient;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Elasticsearch RestHighLevelClient 配置
- * 注意:Spring Boot 2.7 默认提供 RestHighLevelClient(7.17.x),
- * 此处显式配置以便统一管理超时和地址。
+ * Elasticsearch Java API Client 配置（Spring Boot 3 / ES 8 推荐客户端）
+ * 取代已废弃的 RestHighLevelClient。
  */
 @Configuration
 public class ElasticsearchClientConfig {
@@ -21,8 +23,9 @@ public class ElasticsearchClientConfig {
         this.properties = properties;
     }
 
+    /** 底层 HTTP 客户端，单独暴露便于资源释放与超时复用 */
     @Bean(destroyMethod = "close")
-    public RestHighLevelClient elasticsearchClient() {
+    public RestClient restClient() {
         String[] parts = properties.getHost().split(":");
         String host = parts[0];
         int port = parts.length > 1 ? Integer.parseInt(parts[1]) : 9200;
@@ -31,7 +34,16 @@ public class ElasticsearchClientConfig {
                 .setRequestConfigCallback(req -> req
                         .setConnectTimeout(properties.getConnectTimeoutMs())
                         .setSocketTimeout(properties.getSocketTimeoutMs()));
+        return builder.build();
+    }
 
-        return new RestHighLevelClient(builder);
+    @Bean
+    public ElasticsearchTransport elasticsearchTransport(RestClient restClient) {
+        return new RestClientTransport(restClient, new JacksonJsonpMapper());
+    }
+
+    @Bean
+    public ElasticsearchClient elasticsearchClient(ElasticsearchTransport transport) {
+        return new ElasticsearchClient(transport);
     }
 }

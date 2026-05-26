@@ -17,7 +17,7 @@ import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
-import javax.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpServletResponse;
 
 /**
  * Spring Security 配置：无状态 JWT 认证 + 白名单模式。
@@ -48,21 +48,20 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
-            .cors().and()
-            .csrf().disable()
-            .sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS)
-            .and()
-            .exceptionHandling().authenticationEntryPoint(jsonEntryPoint()).and()
+            .cors(cors -> {})
+            .csrf(csrf -> csrf.disable())
+            .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            .exceptionHandling(eh -> eh.authenticationEntryPoint(jsonEntryPoint()))
             .authorizeHttpRequests(auth -> auth
                 // 文档 / 错误页
-                .antMatchers("/error",
+                .requestMatchers("/error",
                         "/swagger-ui.html", "/swagger-ui/**",
                         "/v3/api-docs", "/v3/api-docs/**",
                         "/swagger-resources/**", "/webjars/**").permitAll()
                 // 鉴权(注册/登录/登出 — 登出虽要 token,但走 permitAll 由业务自身校验)
-                .antMatchers("/api/auth/**").permitAll()
+                .requestMatchers("/api/auth/**").permitAll()
                 // 公开的浏览/搜索类接口(对应 @NoLogin 类级)
-                .antMatchers("/api/show/**",
+                .requestMatchers("/api/show/**",
                         "/api/article/**",
                         "/api/article-category/**",
                         "/api/search/**",
@@ -71,9 +70,9 @@ public class SecurityConfig {
                         "/api/session/**",
                         "/api/banner/**").permitAll()
                 // 方法级 @NoLogin 的接口:艺人列表/详情
-                .antMatchers(HttpMethod.GET, "/api/artist/list", "/api/artist/*").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/artist/list", "/api/artist/*").permitAll()
                 // 方法级 @NoLogin 的接口:评价列表/回复/详情
-                .antMatchers(HttpMethod.GET,
+                .requestMatchers(HttpMethod.GET,
                         "/api/review/list",
                         "/api/review/replies",
                         "/api/review/detail/**").permitAll()

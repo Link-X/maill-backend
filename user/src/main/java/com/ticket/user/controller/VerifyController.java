@@ -9,7 +9,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.*;
 
-import javax.validation.Valid;
+import jakarta.validation.Valid;
 
 @Tag(name = "入场核验", description = "二维码 / 票号核销。所有方法都需登录（防止外部遍历恶意核销他人票券），后续可进一步限制为 STAFF 角色。原子 UPDATE 防并发重复核销")
 @RestController

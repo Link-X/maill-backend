@@ -1,7 +1,7 @@
 # Ticket Booking System — Backend
 
-![Java](https://img.shields.io/badge/Java-11-blue)
-![Spring Boot](https://img.shields.io/badge/Spring%20Boot-2.7.x-brightgreen)
+![Java](https://img.shields.io/badge/Java-17-blue)
+![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.2.x-brightgreen)
 ![MySQL](https://img.shields.io/badge/MySQL-8.x-orange)
 ![Redis](https://img.shields.io/badge/Redis-7.x-red)
 ![RabbitMQ](https://img.shields.io/badge/RabbitMQ-3.x-ff6600)
@@ -32,7 +32,7 @@ A high-concurrency ticket booking backend targeting thousands to tens of thousan
 - **In-app Messages** — Decoupled `message` + `user_message` (5 categories: order / open-sale / system / interaction / follow-activity); supports unicast & broadcast; user-side list / unread count / mark-read / batch delete
 - **Show Reviews** — One-level comments + nested replies (`parent_id` self-reference); 1-5 star rating on top-level only; image attachments, likes (deduped via `uk_review_user`), reports, admin moderation (hide / restore / delete); per-show `review_mode` (disabled / open / verified-attendees) + `avg_rating` / `review_count` denormalized counters
 - **Reporting** — Admin `/api/admin/report/*` exposes 11 aggregate endpoints (overview / time series / by show / category / city / status / hour / session fill-rate / user / refund / cancellation); rolling time windows (1d/7d/30d/90d) or custom; results cached in Redis for 5 minutes. The `order` table now tracks `refund_amount` cumulatively and a `cancel_reason` to distinguish user-cancelled vs. timeout-cancelled
-- **Full-text Search** — Elasticsearch 7.17 indexes three doc types (show / artist / article) asynchronously; write paths publish to `search.sync.queue`, `SearchSyncConsumer` upserts ES, `IndexInitializer` creates indices idempotently on startup; degrades gracefully when ES is unavailable
+- **Full-text Search** — Elasticsearch 8.x indexes three doc types (show / artist / article) asynchronously; write paths publish to `search.sync.queue`, `SearchSyncConsumer` upserts ES, `IndexInitializer` creates indices idempotently on startup; degrades gracefully when ES is unavailable
 - **Booking Core** — Lua atomic purchase-limit check + Redis batch seat lock (full rollback on any failure) + synchronous order creation
 - **Oversell Prevention** — Redis Set atomic `SREM` deduction + DB-level safety check
 - **Order Timeout** — RabbitMQ TTL + dead-letter queue, cancels order and releases inventory exactly 5 minutes after creation
@@ -51,12 +51,12 @@ A high-concurrency ticket booking backend targeting thousands to tens of thousan
 
 | Layer | Technology | Version |
 |-------|-----------|---------|
-| Framework | Spring Boot | 2.7.x / JDK 11 |
+| Framework | Spring Boot | 3.2.x / JDK 17 |
 | ORM | MyBatis | 3.5.x |
-| Cache / Lock | Redis + Redisson | 7.x / 3.x |
+| Cache / Lock | Redis + Redisson | 7.x / 3.27.x |
 | Message Queue | RabbitMQ | 3.x |
 | Database | MySQL | 8.x |
-| Full-text Search | Elasticsearch (RestHighLevelClient) | 7.17.x |
+| Full-text Search | Elasticsearch (Java API Client) | 8.13.x |
 | Object Storage | MinIO (S3-compatible) | 8.5.x SDK |
 | Auth | Spring Security + JJWT | 0.12.x |
 | Build | Maven | — |
@@ -111,7 +111,7 @@ common ← core ← admin
 
 ### Prerequisites
 
-- JDK 11+
+- JDK 17+
 - Maven 3.8+
 - Docker & Docker Compose
 
@@ -121,7 +121,7 @@ common ← core ← admin
 docker-compose up -d
 ```
 
-Starts MySQL 8 (3306), Redis 7 (6379), RabbitMQ 3 (5672, management UI on 15672), MinIO (9000 API / 9001 console), and Elasticsearch 7.17 (9200). `sql/schema.sql` is executed automatically on first run; the MinIO `image` bucket (configured via `minio.bucket` in `application-dev.yml`) is auto-created with a public-read policy the first time admin starts; the three ES indices (show / artist / article) are created idempotently on startup by `IndexInitializer` — no manual setup required.
+Starts MySQL 8 (3306), Redis 7 (6379), RabbitMQ 3 (5672, management UI on 15672), MinIO (9000 API / 9001 console), and Elasticsearch 8.13 (9200). `sql/schema.sql` is executed automatically on first run; the MinIO `image` bucket (configured via `minio.bucket` in `application-dev.yml`) is auto-created with a public-read policy the first time admin starts; the three ES indices (show / artist / article) are created idempotently on startup by `IndexInitializer` — no manual setup required.
 
 > **RabbitMQ Management UI**: http://localhost:15672 (guest / guest)
 > **MinIO Console**: http://localhost:9001 (minioadmin / minioadmin123)
@@ -565,7 +565,7 @@ public Result<?> submit(...) { }
             ┌──────────────┬───────┴───────┬──────────────┐
             │              │               │              │
    ┌────────▼─────┐ ┌──────▼──────┐ ┌──────▼──────┐ ┌─────▼──────┐
-   │   MySQL 8    │ │   Redis 7   │ │  RabbitMQ 3 │ │  ES 7.17   │
+   │   MySQL 8    │ │   Redis 7   │ │  RabbitMQ 3 │ │  ES 8.13   │
    │ (replication │ │ (cache/lock)│ │ (events/TTL)│ │ (search)   │
    │  optional)   │ │             │ │             │ │            │
    └──────────────┘ └─────────────┘ └─────────────┘ └────────────┘

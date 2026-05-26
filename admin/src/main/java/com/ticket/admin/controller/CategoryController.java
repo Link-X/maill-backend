@@ -10,7 +10,7 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.*;
 
-import javax.validation.Valid;
+import jakarta.validation.Valid;
 import java.util.List;
 
 @Tag(name = "演出分类管理", description = "维护演出分类（演唱会/相声/脱口秀/体育...）。演出通过 categoryId 关联本表；删除被引用的分类返回业务错误 1012")

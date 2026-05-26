@@ -13,7 +13,7 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.*;
 
-import javax.validation.Valid;
+import jakarta.validation.Valid;
 import java.util.List;
 
 @Tag(name = "座位（场次维度）", description = "不走场地模板（手动模式）时使用：直接给特定 sessionId 批量建座位、设价格、预热 Redis 库存。走模板路径时只需调 /warmup")

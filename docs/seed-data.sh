@@ -3,9 +3,15 @@
 # 生成结果：4 个分类 + 1 个场地模板 + 5 个演出 × 3 个场次 = 15 场次 × 400 座位 = 6000 座位
 # 座位和价格通过场地模板自动复制，无需逐场次创建
 #
-# 依赖: jq（brew install jq）
-# 用法: bash docs/seed-data.sh
-#       bash docs/seed-data.sh --host http://localhost:8081
+# 可选第 0 步：先导入 docs/seed-data.sql（演出/艺人/资讯/分类/场地等"不涉及 Redis 状态"的基础元数据）
+# 通过环境变量 SEED_SQL=1 启用，默认跳过
+# 注意：seed-data.sql 故意放在 docs/ 而非 sql/，避免被 MySQL 容器的 docker-entrypoint-initdb.d 自动加载
+#
+# 依赖: jq（brew install jq）；启用 SEED_SQL=1 时还需要 docker
+# 用法:
+#   bash docs/seed-data.sh                            # 只跑压测 HTTP 流程
+#   SEED_SQL=1 bash docs/seed-data.sh                 # 先导入元数据 SQL,再跑 HTTP 流程
+#   bash docs/seed-data.sh --host http://localhost:8081
 
 set -e
 
@@ -13,6 +19,15 @@ ADMIN_HOST="http://localhost:8081"
 ROW_COUNT=20
 COL_COUNT=20
 VIP_ROWS=10   # 前 N 行为 VIP 区
+
+# 基础元数据 SQL 相关配置（仅在 SEED_SQL=1 时生效）
+MYSQL_CONTAINER="${MYSQL_CONTAINER:-ticket-mysql}"
+MYSQL_USER="${MYSQL_USER:-root}"
+MYSQL_PASSWORD="${MYSQL_PASSWORD:-root123}"
+MYSQL_DATABASE="${MYSQL_DATABASE:-ticket_system}"
+# 脚本所在目录,用于定位 docs/seed-data.sql
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SEED_SQL_FILE="${SCRIPT_DIR}/seed-data.sql"
 
 while [[ "$#" -gt 0 ]]; do
   case $1 in
@@ -32,7 +47,29 @@ echo "  抢票系统压测数据生成"
 echo "  场地模板: ${ROW_COUNT}行×${COL_COUNT}列，前${VIP_ROWS}行VIP"
 echo "  目标: 5演出 × 3场次，座位由模板自动复制"
 echo "  Admin: $ADMIN_HOST"
+echo "  SEED_SQL: ${SEED_SQL:-0} (1=先导入基础元数据 SQL)"
 echo "================================================="
+
+# ─── Step 0: 可选 — 导入基础元数据 SQL ─────────────
+# 包含 演出/艺人/资讯/场地/分类 等不涉及 Redis 库存的真实数据
+# 使用 INSERT IGNORE 幂等,与 HTTP 步骤生成的数据可共存(主键不冲突即可)
+if [ "${SEED_SQL:-0}" = "1" ]; then
+  if [ ! -f "$SEED_SQL_FILE" ]; then
+    echo "[ERROR] 未找到 SQL 文件: $SEED_SQL_FILE"
+    exit 1
+  fi
+  if ! command -v docker &> /dev/null; then
+    echo "[ERROR] 启用 SEED_SQL=1 需要 docker"
+    exit 1
+  fi
+  echo ""
+  echo "[Step 0] 导入基础元数据 SQL: $SEED_SQL_FILE"
+  docker exec -i "$MYSQL_CONTAINER" mysql \
+      -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" \
+      --default-character-set=utf8mb4 \
+      "$MYSQL_DATABASE" < "$SEED_SQL_FILE" 2>&1 | grep -v "Warning" || true
+  echo "[Step 0] 基础元数据导入完成"
+fi
 
 # ─── 工具函数 ────────────────────────────────────────
 

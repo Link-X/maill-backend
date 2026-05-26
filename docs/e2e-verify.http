@@ -33,6 +33,17 @@
 @ticketNo  = <从 orderDetails 响应 data.tickets[0].ticketNo 复制>
 @qrCode    = <支付后等票券异步生成，从 orderDetails 响应 data.tickets[0].qrCode 复制>
 
+# 新增模块依赖的 ID（按需手动填）
+@bannerId          = <从 banner/save 响应 data.id 复制>
+@artistId          = <从 artist/save 响应 data.id 复制>
+@articleCategoryId = <从 article-category/create 响应 data.id 复制>
+@articleId         = <从 article/save 响应 data.id 复制>
+@reviewId          = <从 review/publish 响应 data.id 复制>
+@replyId           = <从 review/reply 响应 data.id 复制>
+@reportId          = <从 review/report 响应 data.id 复制>
+@favoriteGroupId   = <从 favorite/group/create 响应 data.id 复制>
+@messageId         = <从 user 端 message/list 响应 list[0].id 复制>
+
 ###
 # Step 1: 注册用户
 # 预期: {"code":200,"data":{"token":"...","userId":...}}
@@ -616,3 +627,789 @@ Content-Type: application/json
   "size": 20,
   "orderNo": "{{orderNo}}"
 }
+
+###
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║   以下为 2026-05 新增模块: Banner / 艺人 / 资讯 / 评价 / 收藏 /   ║
+# ║   订阅 / 消息 / 报表 / 搜索                                       ║
+# ╚══════════════════════════════════════════════════════════════════╝
+
+###
+# ──────────── Admin Banner 管理 ────────────
+
+###
+# Step 20: 新增 Banner (Admin) → 复制 data.id 到 @bannerId
+# linkType: 0=无 1=外部URL 2=演出详情(linkTarget=showId) 3=资讯详情 4=艺人主页
+# status: 0=下架 1=上架；startAt/endAt 控制定时生效窗口
+# 预期: {"code":200,"data":{"id":1,...}}
+POST {{adminHost}}/api/admin/banner/save
+Content-Type: application/json
+
+{
+  "title": "首页主推-大冬天脱口秀",
+  "imageUrl": "http://localhost:9000/image/banners/2026/05/dongtian.jpg",
+  "linkType": 2,
+  "linkTarget": "{{showId}}",
+  "sort": 10,
+  "status": 1
+}
+
+###
+# Step 20.1: 更新 Banner (Admin) — 同接口,带 id
+POST {{adminHost}}/api/admin/banner/save
+Content-Type: application/json
+
+{
+  "id": {{bannerId}},
+  "title": "首页主推-大冬天脱口秀(更新)",
+  "imageUrl": "http://localhost:9000/image/banners/2026/05/dongtian-v2.jpg",
+  "linkType": 2,
+  "linkTarget": "{{showId}}",
+  "sort": 5,
+  "status": 1
+}
+
+###
+# Step 20.2: Banner 列表 (Admin) — 不传 status 全量,传 status 过滤
+GET {{adminHost}}/api/admin/banner/list
+
+###
+GET {{adminHost}}/api/admin/banner/list?status=1
+
+###
+# Step 20.3: Banner 详情 (Admin)
+GET {{adminHost}}/api/admin/banner/{{bannerId}}
+
+###
+# Step 20.4: Banner 上下架 (Admin)
+POST {{adminHost}}/api/admin/banner/status
+Content-Type: application/json
+
+{
+  "id": {{bannerId}},
+  "status": 0
+}
+
+###
+# Step 20.5: Banner 拖拽排序 (Admin) — orderedIds 数组顺序即新顺序,后端按步长 10 重写 sort
+POST {{adminHost}}/api/admin/banner/sort
+Content-Type: application/json
+
+{
+  "orderedIds": [{{bannerId}}]
+}
+
+###
+# Step 20.6: Banner 删除 (Admin)
+# DELETE {{adminHost}}/api/admin/banner/{{bannerId}}
+
+###
+# Step 20.7: 用户端 首页有效 Banner 列表
+# 仅返回 status=1 且当前时间在 startAt..endAt 区间内的 Banner
+GET {{userHost}}/api/banner/list
+
+###
+# ──────────── Admin 艺人管理 ────────────
+
+###
+# Step 21: 新增艺人 (Admin) → 复制 data.id 到 @artistId
+# gender: 0=未知 1=男 2=女；status: 0=下架 1=上架
+# tags: 逗号分隔的标签字符串，例如 "脱口秀,主持人"
+# socialLinks: JSON 字符串，前端约定结构（如 {"weibo":"...","douyin":"..."}）
+# 预期: {"code":200,"data":{"id":1,"name":"王自健",...}}
+POST {{adminHost}}/api/admin/artist/save
+Content-Type: application/json
+
+{
+  "name": "王自健",
+  "stageName": "自健",
+  "avatarUrl": "http://localhost:9000/image/avatars/wzj.jpg",
+  "gender": 1,
+  "nationality": "中国",
+  "tags": "脱口秀,主持人",
+  "bio": "前《今晚 80 后》主持人,脱口秀演员",
+  "description": "<p>富文本简介...</p>",
+  "socialLinks": "{\"weibo\":\"https://weibo.com/x\"}",
+  "status": 1
+}
+
+###
+# Step 21.1: 更新艺人 (Admin) — 同接口,带 id
+POST {{adminHost}}/api/admin/artist/save
+Content-Type: application/json
+
+{
+  "id": {{artistId}},
+  "name": "王自健",
+  "stageName": "自健",
+  "avatarUrl": "http://localhost:9000/image/avatars/wzj.jpg",
+  "gender": 1,
+  "tags": "脱口秀,主持人,演员",
+  "bio": "更新后的简介",
+  "status": 1
+}
+
+###
+# Step 21.2: 艺人列表 (Admin) — 不传 status 全量
+GET {{adminHost}}/api/admin/artist/list
+
+###
+# Step 21.3: 艺人详情 (Admin)
+GET {{adminHost}}/api/admin/artist/{{artistId}}
+
+###
+# Step 21.4: 艺人上下架 (Admin)
+POST {{adminHost}}/api/admin/artist/status
+Content-Type: application/json
+
+{
+  "id": {{artistId}},
+  "status": 0
+}
+
+###
+# Step 21.5: 删除艺人 (Admin)
+# DELETE {{adminHost}}/api/admin/artist/{{artistId}}
+
+###
+# ──────────── User 艺人 + 关注 ────────────
+
+###
+# Step 21.6: 用户端艺人列表(已上架,分页)
+GET {{userHost}}/api/artist/list?page=1&size=20
+
+###
+# Step 21.7: 艺人主页详情
+GET {{userHost}}/api/artist/{{artistId}}
+
+###
+# Step 21.8: 关注艺人
+POST {{userHost}}/api/artist/follow
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "artistId": {{artistId}}
+}
+
+###
+# Step 21.9: 是否已关注
+GET {{userHost}}/api/artist/follow/check?artistId={{artistId}}
+Authorization: Bearer {{token}}
+
+###
+# Step 21.10: 我关注的艺人列表
+GET {{userHost}}/api/artist/follow/list?page=1&size=20
+Authorization: Bearer {{token}}
+
+###
+# Step 21.11: 取消关注
+POST {{userHost}}/api/artist/unfollow
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "artistId": {{artistId}}
+}
+
+###
+# ──────────── Admin 资讯分类管理 ────────────
+
+###
+# Step 22: 新建资讯分类 (Admin) → 复制 data.id 到 @articleCategoryId
+# status: 0=禁用 1=启用
+# 预期: {"code":200,"data":{"id":1,"name":"行业动态",...}}
+POST {{adminHost}}/api/admin/article-category/create
+Content-Type: application/json
+
+{
+  "name": "行业动态",
+  "sort": 10,
+  "status": 1
+}
+
+###
+# Step 22.1: 更新资讯分类 (Admin)
+PUT {{adminHost}}/api/admin/article-category/update
+Content-Type: application/json
+
+{
+  "id": {{articleCategoryId}},
+  "name": "行业动态(更新)",
+  "sort": 5,
+  "status": 1
+}
+
+###
+# Step 22.2: 资讯分类列表 (Admin)
+GET {{adminHost}}/api/admin/article-category/list
+
+###
+# Step 22.3: 删除资讯分类 (Admin)
+# DELETE {{adminHost}}/api/admin/article-category/{{articleCategoryId}}
+
+###
+# Step 22.4: 用户端启用的资讯分类
+GET {{userHost}}/api/article-category/list
+
+###
+# ──────────── Admin 资讯管理 ────────────
+
+###
+# Step 23: 新增资讯 (Admin) → 复制 data.id 到 @articleId
+# status: 0=草稿 1=已发布 2=已下架
+# artistId 可选，关联艺人
+# 预期: {"code":200,"data":{"id":1,...}}
+POST {{adminHost}}/api/admin/article/save
+Content-Type: application/json
+
+{
+  "categoryId": {{articleCategoryId}},
+  "title": "王自健新专场即将开演",
+  "summary": "脱口秀演员王自健将于 2036 年开启巡演...",
+  "content": "<p>完整正文（富文本）...</p>",
+  "coverUrl": "http://localhost:9000/image/articles/cover1.jpg",
+  "artistId": {{artistId}},
+  "author": "编辑部",
+  "status": 0
+}
+
+###
+# Step 23.1: 更新资讯 (Admin) — 同接口,带 id
+POST {{adminHost}}/api/admin/article/save
+Content-Type: application/json
+
+{
+  "id": {{articleId}},
+  "categoryId": {{articleCategoryId}},
+  "title": "王自健新专场即将开演(更新)",
+  "summary": "更新后的摘要",
+  "content": "<p>更新后的正文</p>",
+  "coverUrl": "http://localhost:9000/image/articles/cover1.jpg",
+  "artistId": {{artistId}},
+  "author": "编辑部",
+  "status": 0
+}
+
+###
+# Step 23.2: 资讯列表 (Admin) — 可按 status / categoryId / keyword 筛
+POST {{adminHost}}/api/admin/article/list
+Content-Type: application/json
+
+{
+  "page": 1,
+  "size": 20,
+  "status": 0,
+  "categoryId": {{articleCategoryId}}
+}
+
+###
+# Step 23.3: 资讯详情 (Admin)
+GET {{adminHost}}/api/admin/article/{{articleId}}
+
+###
+# Step 23.4: 发布资讯 (Admin) — status: 0→1
+POST {{adminHost}}/api/admin/article/publish
+Content-Type: application/json
+
+{
+  "id": {{articleId}}
+}
+
+###
+# Step 23.5: 下架资讯 (Admin) — status: 1→2
+POST {{adminHost}}/api/admin/article/offline
+Content-Type: application/json
+
+{
+  "id": {{articleId}}
+}
+
+###
+# Step 23.6: 删除资讯 (Admin)
+# DELETE {{adminHost}}/api/admin/article/{{articleId}}
+
+###
+# ──────────── User 资讯浏览 ────────────
+
+###
+# Step 23.7: 用户端资讯列表（已发布，可按 categoryId 过滤）
+GET {{userHost}}/api/article/list?page=1&size=20
+
+###
+GET {{userHost}}/api/article/list?categoryId={{articleCategoryId}}&page=1&size=20
+
+###
+# Step 23.8: 资讯详情（自动 view_count + 1）
+GET {{userHost}}/api/article/{{articleId}}
+
+###
+# Step 23.9: 艺人相关资讯
+GET {{userHost}}/api/article/by-artist/{{artistId}}?page=1&size=20
+
+###
+# ──────────── User 演出收藏（含分组） ────────────
+
+###
+# Step 24: 添加收藏（不带 groupId 则放入"未分组"）
+POST {{userHost}}/api/favorite/add
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "showId": {{showId}}
+}
+
+###
+# Step 24.1: 创建收藏分组 → 复制 data.id 到 @favoriteGroupId
+POST {{userHost}}/api/favorite/group/create
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "name": "想看的脱口秀"
+}
+
+###
+# Step 24.2: 重命名分组
+POST {{userHost}}/api/favorite/group/rename
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "id": {{favoriteGroupId}},
+  "name": "脱口秀清单"
+}
+
+###
+# Step 24.3: 分组列表
+GET {{userHost}}/api/favorite/group/list
+Authorization: Bearer {{token}}
+
+###
+# Step 24.4: 把已收藏的演出移到指定分组
+POST {{userHost}}/api/favorite/move
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "showId": {{showId}},
+  "groupId": {{favoriteGroupId}}
+}
+
+###
+# Step 24.5: 是否已收藏
+GET {{userHost}}/api/favorite/check?showId={{showId}}
+Authorization: Bearer {{token}}
+
+###
+# Step 24.6: 我的收藏列表（可选按 groupId 过滤，unset=true 仅看未分组）
+GET {{userHost}}/api/favorite/list?page=1&size=20
+Authorization: Bearer {{token}}
+
+###
+GET {{userHost}}/api/favorite/list?groupId={{favoriteGroupId}}
+Authorization: Bearer {{token}}
+
+###
+GET {{userHost}}/api/favorite/list?unset=true
+Authorization: Bearer {{token}}
+
+###
+# Step 24.7: 删除分组（分组下收藏的 group_id 置 NULL，不会删除收藏本身）
+POST {{userHost}}/api/favorite/group/delete
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "id": {{favoriteGroupId}}
+}
+
+###
+# Step 24.8: 取消收藏
+POST {{userHost}}/api/favorite/remove
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "showId": {{showId}}
+}
+
+###
+# ──────────── User 演出开售订阅 ────────────
+
+###
+# Step 25: 订阅开售提醒
+# notifyBeforeMinutes 可选,默认 30；开售前 N 分钟系统会推站内信
+POST {{userHost}}/api/subscribe/add
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "showId": {{showId}},
+  "notifyBeforeMinutes": 30
+}
+
+###
+# Step 25.1: 是否已订阅
+GET {{userHost}}/api/subscribe/check?showId={{showId}}
+Authorization: Bearer {{token}}
+
+###
+# Step 25.2: 我的订阅列表
+GET {{userHost}}/api/subscribe/list?page=1&size=20
+Authorization: Bearer {{token}}
+
+###
+# Step 25.3: 取消订阅
+POST {{userHost}}/api/subscribe/remove
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "showId": {{showId}}
+}
+
+###
+# ──────────── User 评价（含楼中楼） ────────────
+
+###
+# Step 26: 校验当前用户是否能评价（前端按钮显隐用）
+# 需要：用户已购买且消费完（status=1 且场次已结束）
+GET {{userHost}}/api/review/check-permission?showId={{showId}}&orderId={{orderId}}
+Authorization: Bearer {{token}}
+
+###
+# Step 26.1: 发布一级评价 → 复制 data.id 到 @reviewId
+# rating: 1-5 星
+# images: 最多 9 张图（MinIO URL 数组）
+POST {{userHost}}/api/review/publish
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "showId": {{showId}},
+  "orderId": {{orderId}},
+  "rating": 5,
+  "content": "现场氛围超好,值回票价",
+  "images": [
+    "http://localhost:9000/image/reviews/r1.jpg"
+  ]
+}
+
+###
+# Step 26.2: 二级回复（楼中楼） → 复制 data.id 到 @replyId
+# parentId = 被回复的一级评价 id
+# replyToUserId 可选：在二级楼里 @ 另一个二级评论的作者时填
+POST {{userHost}}/api/review/reply
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "parentId": {{reviewId}},
+  "content": "同感,我也想再去一次",
+  "images": []
+}
+
+###
+# Step 26.3: 一级评价列表（sort=latest 或 hottest）
+# 已登录时会带上"当前用户是否已点赞"标志
+GET {{userHost}}/api/review/list?showId={{showId}}&sort=latest&page=1&size=20
+Authorization: Bearer {{token}}
+
+###
+GET {{userHost}}/api/review/list?showId={{showId}}&sort=hottest
+
+###
+# Step 26.4: 二级回复列表
+GET {{userHost}}/api/review/replies?parentId={{reviewId}}&page=1&size=20
+
+###
+# Step 26.5: 评价详情
+GET {{userHost}}/api/review/detail/{{reviewId}}
+
+###
+# Step 26.6: 点赞
+POST {{userHost}}/api/review/like
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "reviewId": {{reviewId}}
+}
+
+###
+# Step 26.7: 取消点赞
+POST {{userHost}}/api/review/unlike
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "reviewId": {{reviewId}}
+}
+
+###
+# Step 26.8: 举报评价 → 复制 data.id 到 @reportId
+POST {{userHost}}/api/review/report
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "reviewId": {{reviewId}},
+  "reason": "包含广告内容"
+}
+
+###
+# Step 26.9: 我发布的评价
+GET {{userHost}}/api/review/my?page=1&size=20
+Authorization: Bearer {{token}}
+
+###
+# Step 26.10: 用户自删评价（status → 2 隐藏）
+POST {{userHost}}/api/review/delete
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "reviewId": {{replyId}}
+}
+
+###
+# ──────────── Admin 评价审核 + 举报处理 ────────────
+
+###
+# Step 27: 评价列表 (Admin)
+# status: 0=正常 1=已隐藏 2=用户删除；不传 status 则全部
+POST {{adminHost}}/api/admin/review/list
+Content-Type: application/json
+
+{
+  "page": 1,
+  "size": 20,
+  "showId": {{showId}}
+}
+
+###
+# Step 27.1: 隐藏评价
+POST {{adminHost}}/api/admin/review/hide
+Content-Type: application/json
+
+{
+  "reviewId": {{reviewId}}
+}
+
+###
+# Step 27.2: 恢复评价（取消隐藏）
+POST {{adminHost}}/api/admin/review/restore
+Content-Type: application/json
+
+{
+  "reviewId": {{reviewId}}
+}
+
+###
+# Step 27.3: 硬删除评价（不可恢复）
+POST {{adminHost}}/api/admin/review/delete
+Content-Type: application/json
+
+{
+  "reviewId": {{reviewId}}
+}
+
+###
+# Step 27.4: 举报列表 — status 可选: 0=待处理 1=已保留 2=已删除
+GET {{adminHost}}/api/admin/review/report/list?page=1&size=20
+
+###
+GET {{adminHost}}/api/admin/review/report/list?status=0
+
+###
+# Step 27.5: 处理举报 — action=keep 保留评价 / action=delete 删除评价
+POST {{adminHost}}/api/admin/review/report/handle
+Content-Type: application/json
+
+{
+  "reportId": {{reportId}},
+  "action": "delete"
+}
+
+###
+# ──────────── Admin 消息发送 ────────────
+
+###
+# Step 28: 单发消息（给指定用户列表发同一条）
+# type: 1=系统 2=订单 3=订阅 4=活动 5=其他
+# linkType / linkTarget 用于站内消息点击跳转
+POST {{adminHost}}/api/admin/message/send
+Content-Type: application/json
+
+{
+  "userIds": [1],
+  "type": 1,
+  "title": "系统升级通知",
+  "content": "2026-05-30 23:00-24:00 系统维护,期间下单不可用",
+  "linkType": 0
+}
+
+###
+# Step 28.1: 广播消息（全站所有用户）
+POST {{adminHost}}/api/admin/message/broadcast
+Content-Type: application/json
+
+{
+  "type": 4,
+  "title": "618 大促优惠券已到账",
+  "content": "前往优惠券中心查看",
+  "linkType": 0
+}
+
+###
+# Step 28.2: 后台消息列表 — type 可选筛选类型，broadcast=0 仅单发 / 1 仅广播
+POST {{adminHost}}/api/admin/message/list
+Content-Type: application/json
+
+{
+  "page": 1,
+  "size": 20
+}
+
+###
+# ──────────── User 消息中心 ────────────
+
+###
+# Step 29: 我的消息列表（可按 type 筛选） → 复制 list[0].id 到 @messageId
+GET {{userHost}}/api/message/list?page=1&size=20
+Authorization: Bearer {{token}}
+
+###
+GET {{userHost}}/api/message/list?type=1
+Authorization: Bearer {{token}}
+
+###
+# Step 29.1: 未读数（各类型 + 总数）
+# 预期: {"code":200,"data":{"1":2,"2":1,"3":0,"4":0,"5":0,"total":3}}
+GET {{userHost}}/api/message/unread/count
+Authorization: Bearer {{token}}
+
+###
+# Step 29.2: 标记部分已读
+POST {{userHost}}/api/message/read
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "ids": [{{messageId}}]
+}
+
+###
+# Step 29.3: 全部已读（不传 type 表示所有类型）
+POST {{userHost}}/api/message/read/all
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "type": 1
+}
+
+###
+# Step 29.4: 删除消息
+POST {{userHost}}/api/message/delete
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "ids": [{{messageId}}]
+}
+
+###
+# ──────────── Admin 统计报表（11 个接口） ────────────
+# 通用参数: range=1d/7d/30d/90d，或 startTime+endTime；二选一同传时自定义优先
+# 所有接口结果 Redis 5min 缓存
+
+###
+# Step 30: 营收概览 — 首页 KPI 卡片
+# 响应包含: revenue, orderCount, paidCount, refundAmount, ticketCount, verifiedCount + 与上一等长周期的环比
+GET {{adminHost}}/api/admin/report/overview?range=30d
+
+###
+# Step 30.1: 时间趋势 — dim=day（默认）/hour/month
+# dim=hour 窗口最多 7d；dim=month 至少 90d
+GET {{adminHost}}/api/admin/report/timeseries?range=7d&dim=day
+
+###
+GET {{adminHost}}/api/admin/report/timeseries?range=1d&dim=hour
+
+###
+# 自定义时间范围示例
+GET {{adminHost}}/api/admin/report/timeseries?startTime=2026-05-01T00:00:00&endTime=2026-05-31T23:59:59&dim=day
+
+###
+# Step 30.2: 演出排行 Top N — sort=revenue/tickets/orderCount
+GET {{adminHost}}/api/admin/report/by-show?range=30d&limit=10&sort=revenue
+
+###
+# Step 30.3: 按分类汇总（饼图源数据）
+GET {{adminHost}}/api/admin/report/by-category?range=30d
+
+###
+# Step 30.4: 按城市汇总
+GET {{adminHost}}/api/admin/report/by-city?range=30d
+
+###
+# Step 30.5: 订单状态分布 — 返回 0-5 共 6 种状态的 count/sum
+GET {{adminHost}}/api/admin/report/status-distribution?range=30d
+
+###
+# Step 30.6: 24 小时下单分布 — 返回 0-23 共 24 行
+GET {{adminHost}}/api/admin/report/hour-distribution?range=30d
+
+###
+# Step 30.7: 场次售罄率排行 — sort=fillRate/revenue/startTime
+GET {{adminHost}}/api/admin/report/by-session?range=30d&limit=20&sort=fillRate
+
+###
+# 限定某个演出的场次
+GET {{adminHost}}/api/admin/report/by-session?range=30d&showId={{showId}}
+
+###
+# Step 30.8: 用户购买行为 — 买家数/复购率/客单价/平均座位数
+GET {{adminHost}}/api/admin/report/user-stats?range=30d
+
+###
+# Step 30.9: 退款指标 — 退款总额/退款率/各状态退款订单数
+GET {{adminHost}}/api/admin/report/refund-stats?range=30d
+
+###
+# Step 30.10: 取消率分析 — 区分超时取消和主动取消
+GET {{adminHost}}/api/admin/report/cancellation-stats?range=30d
+
+###
+# ──────────── User 搜索（ES） ────────────
+# 前置: 演出/艺人/资讯通过 MQ 同步到 ES（IndexInitializer 启动会自动建索引）
+# 高亮: 响应中 list[i]._highlight 是 {字段名: "<em>...</em>" 包裹后的片段}
+
+###
+# Step 31: 搜索演出
+GET {{userHost}}/api/search/show?kw=脱口秀&page=1&size=20
+
+###
+# Step 31.1: 搜索艺人
+GET {{userHost}}/api/search/artist?kw=王自健&page=1&size=20
+
+###
+# Step 31.2: 搜索资讯
+GET {{userHost}}/api/search/article?kw=巡演&page=1&size=20
+
+###
+# Step 31.3: 聚合搜索（演出/艺人/资讯 各 Top 5）
+GET {{userHost}}/api/search/all?kw=脱口秀
+
+###
+# Step 31.4: 我的搜索历史（最近 10 条，去重）
+GET {{userHost}}/api/search/history
+Authorization: Bearer {{token}}
+
+###
+# Step 31.5: 清空搜索历史
+DELETE {{userHost}}/api/search/history
+Authorization: Bearer {{token}}

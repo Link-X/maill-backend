@@ -10,7 +10,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
-import javax.validation.Valid;
+import jakarta.validation.Valid;
 
 @Tag(name = "支付", description = "Mock 支付网关：调用 PaymentService 模拟支付，成功后更新订单状态、通过 RabbitMQ Fanout 异步触发票券生成 / 库存同步 / 通知")
 @RestController

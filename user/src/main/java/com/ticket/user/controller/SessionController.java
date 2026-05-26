@@ -13,7 +13,7 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.*;
 
-import javax.validation.Valid;
+import jakarta.validation.Valid;
 import java.util.List;
 
 @Tag(name = "场次（用户端）", description = "场次列表与座位图详情；座位图含实时可售状态（从 Redis 读）和演出/城市信息")

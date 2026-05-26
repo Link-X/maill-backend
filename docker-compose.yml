@@ -60,10 +60,11 @@ services:
     restart: unless-stopped
 
   elasticsearch:
-    image: elasticsearch:7.17.18
+    image: elasticsearch:8.13.4
     container_name: ticket-elasticsearch
     environment:
       - discovery.type=single-node
+      # 8.x 默认开启 security,开发环境显式关闭,避免还要配证书/账号
       - xpack.security.enabled=false
       - ES_JAVA_OPTS=-Xms512m -Xmx512m
       - TZ=Asia/Shanghai

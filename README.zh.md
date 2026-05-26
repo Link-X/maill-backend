@@ -1,7 +1,7 @@
 # 抢票系统后端
 
-![Java](https://img.shields.io/badge/Java-11-blue)
-![Spring Boot](https://img.shields.io/badge/Spring%20Boot-2.7.x-brightgreen)
+![Java](https://img.shields.io/badge/Java-17-blue)
+![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.2.x-brightgreen)
 ![MySQL](https://img.shields.io/badge/MySQL-8.x-orange)
 ![Redis](https://img.shields.io/badge/Redis-7.x-red)
 ![RabbitMQ](https://img.shields.io/badge/RabbitMQ-3.x-ff6600)
@@ -32,7 +32,7 @@
 - **站内消息**：`message` + `user_message` 两表分离；支持单发/广播（订单/开售/系统/互动/关注动态五类），用户端列表/未读数/标记已读/批量删除
 - **演出评价**：一级评论 + 二级回复（`parent_id` 自关联）；评分仅一级且 1-5 星；图片晒图、点赞（去重 `uk_review_user`）、举报、管理端审核（隐藏/恢复/删除）；演出可配置 `review_mode`（无评价/所有可评/仅已观看）+ `avg_rating`/`review_count` 冗余统计
 - **统计报表**：管理端 `/api/admin/report/*` 提供 11 个聚合接口（概览/趋势/按演出/分类/城市/状态/时段/场次售罄率/用户/退款/取消率）；时间窗口支持 1d/7d/30d/90d 滚动或自定义；结果 Redis 5 分钟缓存，无需关心 N+1。订单表 `refund_amount` 累计、`cancel_reason` 区分用户/超时取消
-- **全文搜索**：Elasticsearch 7.17 异步索引演出/艺人/资讯三类文档；业务写操作发布 `search.sync.queue` 事件，`SearchSyncConsumer` 落 ES，`IndexInitializer` 启动时幂等建索引；ES 不可用时降级，不阻塞业务
+- **全文搜索**：Elasticsearch 8.x 异步索引演出/艺人/资讯三类文档；业务写操作发布 `search.sync.queue` 事件，`SearchSyncConsumer` 落 ES，`IndexInitializer` 启动时幂等建索引；ES 不可用时降级，不阻塞业务
 - **抢票核心**：Lua 原子限购检查 + Redis 批量锁座（任一失败全量回滚）+ 同步建单
 - **防超卖**：Redis Set 原子扣库存，DB 层二次校验兜底
 - **订单超时**：RabbitMQ TTL + 死信队列，5 分钟精准触发取消并释放库存
@@ -51,12 +51,12 @@
 
 | 层次 | 技术 | 版本 |
 |------|------|------|
-| 后端框架 | Spring Boot | 2.7.x / JDK 11 |
+| 后端框架 | Spring Boot | 3.2.x / JDK 17 |
 | ORM | MyBatis | 3.5.x |
-| 缓存 / 分布式锁 | Redis + Redisson | 7.x / 3.x |
+| 缓存 / 分布式锁 | Redis + Redisson | 7.x / 3.27.x |
 | 消息队列 | RabbitMQ | 3.x |
 | 数据库 | MySQL | 8.x |
-| 全文搜索 | Elasticsearch (RestHighLevelClient) | 7.17.x |
+| 全文搜索 | Elasticsearch (Java API Client) | 8.13.x |
 | 对象存储 | MinIO (S3 兼容) | 8.5.x SDK |
 | 鉴权 | Spring Security + JJWT | 0.12.x |
 | 构建 | Maven | — |
@@ -111,7 +111,7 @@ common ← core ← admin
 
 ### 前置要求
 
-- JDK 11+
+- JDK 17+
 - Maven 3.8+
 - Docker & Docker Compose
 
@@ -121,7 +121,7 @@ common ← core ← admin
 docker-compose up -d
 ```
 
-启动 MySQL 8（3306）、Redis 7（6379）、RabbitMQ 3（5672，管理界面 15672）、MinIO（9000 API / 9001 控制台）、Elasticsearch 7.17（9200）。`sql/schema.sql` 首次运行自动执行；MinIO 的 `image` bucket（在 `application-dev.yml` 的 `minio.bucket` 配置）由 admin 启动时自动创建并设为公共读，ES 三个索引（show / artist / article）由 `IndexInitializer` 启动时幂等创建，均无需手动建。
+启动 MySQL 8（3306）、Redis 7（6379）、RabbitMQ 3（5672，管理界面 15672）、MinIO（9000 API / 9001 控制台）、Elasticsearch 8.13（9200）。`sql/schema.sql` 首次运行自动执行；MinIO 的 `image` bucket（在 `application-dev.yml` 的 `minio.bucket` 配置）由 admin 启动时自动创建并设为公共读，ES 三个索引（show / artist / article）由 `IndexInitializer` 启动时幂等创建，均无需手动建。
 
 > **RabbitMQ 管理界面**：http://localhost:15672（guest / guest）
 > **MinIO 管理控制台**：http://localhost:9001（minioadmin / minioadmin123）
@@ -565,7 +565,7 @@ public Result<?> submit(...) { }
             ┌──────────────┬───────┴───────┬──────────────┐
             │              │               │              │
    ┌────────▼─────┐ ┌──────▼──────┐ ┌──────▼──────┐ ┌─────▼──────┐
-   │   MySQL 8    │ │   Redis 7   │ │  RabbitMQ 3 │ │  ES 7.17   │
+   │   MySQL 8    │ │   Redis 7   │ │  RabbitMQ 3 │ │  ES 8.13   │
    │  (主从可选)   │ │  (缓存/锁)  │ │ (事件/超时) │ │ (全文搜索) │
    └──────────────┘ └─────────────┘ └─────────────┘ └────────────┘
                             │
