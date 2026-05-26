@@ -16,6 +16,31 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
+      # Lettuce 连接池：高 QPS 用户端需要并发 Redis 操作(座位锁/限购/会话)
+      lettuce:
+        pool:
+          max-active: 32
+          max-idle: 16
+          min-idle: 4
+          max-wait: 2000ms
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:guest}
+    password: ${RABBITMQ_PASS:guest}
+    # Publisher Confirm + Returns：订单超时/取消等关键消息丢失告警链路
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    listener:
+      simple:
+        # 消费者并发：order.cancel / ticket.generate / 等高吞吐队列需要并行消费
+        concurrency: 4
+        max-concurrency: 8
+        prefetch: 32
+        retry:
+          enabled: true
+          max-attempts: 3
+          initial-interval: 2000ms
 
 snowflake:
   # 必须通过 SNOWFLAKE_WORKER_ID 环境变量注入,每副本唯一(0-31),未配置启动会报错

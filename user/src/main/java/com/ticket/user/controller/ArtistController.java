@@ -3,6 +3,7 @@ package com.ticket.user.controller;
 import com.ticket.common.result.Result;
 import com.ticket.core.domain.entity.Artist;
 import com.ticket.core.service.ArtistService;
+import com.ticket.user.config.NoLogin;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -25,6 +26,7 @@ public class ArtistController {
     }
 
     @Operation(summary = "艺人列表(已上架)")
+    @NoLogin
     @GetMapping("/list")
     public Result<Map<String, Object>> list(
             @RequestParam(defaultValue = "1") Integer page,
@@ -40,6 +42,7 @@ public class ArtistController {
     }
 
     @Operation(summary = "艺人详情")
+    @NoLogin
     @GetMapping("/{id}")
     public Result<Artist> get(@PathVariable Long id) {
         return Result.success(artistService.getById(id));

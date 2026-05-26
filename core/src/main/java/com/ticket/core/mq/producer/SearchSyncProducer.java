@@ -5,6 +5,8 @@ import com.ticket.core.mq.event.SearchSyncEvent;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Slf4j
 @Component
@@ -23,5 +25,24 @@ public class SearchSyncProducer {
                 RabbitMQConfig.SEARCH_SYNC_EXCHANGE,
                 RabbitMQConfig.SEARCH_SYNC_ROUTING_KEY,
                 event);
+    }
+
+    /**
+     * 在当前事务提交后再发送（无事务则立即发送）。
+     *
+     * 避免在 @Transactional 方法内事务尚未提交就发出 MQ：若事务回滚，
+     * 消费者会读到一条 DB 中不存在的数据，导致 ES 脏写或报错。
+     */
+    public void sendAfterCommit(SearchSyncEvent event) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    send(event);
+                }
+            });
+        } else {
+            send(event);
+        }
     }
 }

@@ -52,7 +52,7 @@ public class ShowService {
         Show saved = showMapper.selectById(show.getId());
         saved.setArtists(showArtistMapper.selectArtistsByShowId(show.getId()));
         // 发送搜索同步事件：写 ES
-        searchSyncProducer.send(SearchSyncEvent.upsert("show", show.getId()));
+        searchSyncProducer.sendAfterCommit(SearchSyncEvent.upsert("show", show.getId()));
         return saved;
     }
 
@@ -73,7 +73,7 @@ public class ShowService {
         Show updated = showMapper.selectById(show.getId());
         updated.setArtists(showArtistMapper.selectArtistsByShowId(show.getId()));
         // 发送搜索同步事件：写 ES
-        searchSyncProducer.send(SearchSyncEvent.upsert("show", show.getId()));
+        searchSyncProducer.sendAfterCommit(SearchSyncEvent.upsert("show", show.getId()));
         return updated;
     }
 

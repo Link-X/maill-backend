@@ -1,5 +1,6 @@
 package com.ticket.core.service;
 
+import com.ticket.common.constant.RedisKeys;
 import com.ticket.common.exception.BusinessException;
 import com.ticket.common.exception.ErrorCode;
 import com.ticket.core.domain.entity.Article;
@@ -10,6 +11,7 @@ import com.ticket.core.mapper.ArticleMapper;
 import com.ticket.core.mapper.ArtistMapper;
 import com.ticket.core.mq.event.SearchSyncEvent;
 import com.ticket.core.mq.producer.SearchSyncProducer;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,15 +27,18 @@ public class ArticleService {
     private final ArticleCategoryMapper categoryMapper;
     private final ArtistMapper artistMapper;
     private final SearchSyncProducer searchSyncProducer;
+    private final StringRedisTemplate redis;
 
     public ArticleService(ArticleMapper articleMapper,
                           ArticleCategoryMapper categoryMapper,
                           ArtistMapper artistMapper,
-                          SearchSyncProducer searchSyncProducer) {
+                          SearchSyncProducer searchSyncProducer,
+                          StringRedisTemplate redis) {
         this.articleMapper = articleMapper;
         this.categoryMapper = categoryMapper;
         this.artistMapper = artistMapper;
         this.searchSyncProducer = searchSyncProducer;
+        this.redis = redis;
     }
 
     @Transactional
@@ -47,7 +52,7 @@ public class ArticleService {
             article.setUpdateTime(now);
             articleMapper.insert(article);
             // 发送搜索同步事件
-            searchSyncProducer.send(SearchSyncEvent.upsert("article", article.getId()));
+            searchSyncProducer.sendAfterCommit(SearchSyncEvent.upsert("article", article.getId()));
             return article;
         }
         Article exist = articleMapper.selectById(article.getId());
@@ -55,7 +60,7 @@ public class ArticleService {
         article.setUpdateTime(now);
         articleMapper.update(article);
         // 发送搜索同步事件
-        searchSyncProducer.send(SearchSyncEvent.upsert("article", article.getId()));
+        searchSyncProducer.sendAfterCommit(SearchSyncEvent.upsert("article", article.getId()));
         return articleMapper.selectById(article.getId());
     }
 
@@ -67,7 +72,7 @@ public class ArticleService {
         LocalDateTime publishedAt = exist.getPublishedAt() != null ? exist.getPublishedAt() : now;
         articleMapper.updateStatus(id, 1, publishedAt, now);
         // 发布后同步到 ES
-        searchSyncProducer.send(SearchSyncEvent.upsert("article", id));
+        searchSyncProducer.sendAfterCommit(SearchSyncEvent.upsert("article", id));
     }
 
     @Transactional
@@ -76,14 +81,14 @@ public class ArticleService {
         if (exist == null) throw new BusinessException(ErrorCode.ARTICLE_NOT_FOUND);
         articleMapper.updateStatus(id, 2, exist.getPublishedAt(), LocalDateTime.now());
         // 下架后同步到 ES（status 变化）
-        searchSyncProducer.send(SearchSyncEvent.upsert("article", id));
+        searchSyncProducer.sendAfterCommit(SearchSyncEvent.upsert("article", id));
     }
 
     @Transactional
     public void delete(Long id) {
         articleMapper.deleteById(id);
         // 同步删除 ES 文档
-        searchSyncProducer.send(SearchSyncEvent.delete("article", id));
+        searchSyncProducer.sendAfterCommit(SearchSyncEvent.delete("article", id));
     }
 
     public Article getById(Long id) {
@@ -92,13 +97,24 @@ public class ArticleService {
         return a;
     }
 
-    /** user 端详情:read + 异步 view_count++ */
-    @Transactional
+    /**
+     * user 端详情：DB 取主体 + Redis HINCRBY 累计本次浏览(避免热门文章 DB 行锁热点)。
+     * 返回的 viewCount = DB.view_count + Redis 缓冲区累计值，前端展示无延迟。
+     * 缓冲区由 ArticleViewFlushScheduler 定时回写 DB 并清零。
+     */
     public Article getByIdAndIncrView(Long id) {
         Article a = articleMapper.selectById(id);
         if (a == null) return null;
-        articleMapper.incrViewCount(id);
-        a.setViewCount((a.getViewCount() == null ? 0 : a.getViewCount()) + 1);
+        long delta = 0L;
+        try {
+            Long incr = redis.opsForHash().increment(
+                    RedisKeys.articleViewBuffer(), String.valueOf(id), 1L);
+            delta = incr == null ? 0L : incr;
+        } catch (Exception e) {
+            // Redis 异常不阻塞详情接口；本次 view 计数丢失可接受
+        }
+        int dbView = a.getViewCount() == null ? 0 : a.getViewCount();
+        a.setViewCount(dbView + (int) delta);
         joinRelations(a);
         return a;
     }

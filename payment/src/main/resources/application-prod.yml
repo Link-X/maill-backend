@@ -16,6 +16,12 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
+      lettuce:
+        pool:
+          max-active: 16
+          max-idle: 8
+          min-idle: 2
+          max-wait: 2000ms
   rabbitmq:
     host: ${RABBITMQ_HOST:localhost}
     port: ${RABBITMQ_PORT:5672}
@@ -26,6 +32,10 @@ spring:
     publisher-returns: true
     listener:
       simple:
+        # 退款队列消费者并发：支付服务需要并行处理 refund.queue
+        concurrency: 4
+        max-concurrency: 8
+        prefetch: 16
         retry:
           enabled: true
           max-attempts: 3

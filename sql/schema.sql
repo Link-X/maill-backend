@@ -437,6 +437,7 @@ CREATE TABLE IF NOT EXISTS show_review_report (
     create_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     update_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
+    UNIQUE KEY uk_reporter_review (reporter_id, review_id) COMMENT '同一用户对同一评论仅允许举报一次',
     KEY idx_status_time (status, create_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='评价举报';
 

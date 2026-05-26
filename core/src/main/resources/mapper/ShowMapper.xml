@@ -92,10 +92,15 @@
         WHERE id = #{id}
     </select>
 
+    <!--
+      admin 后台下拉/筛选用，加 LIMIT 兜底防止表增长后一次性加载到 JVM 堆。
+      如确需取全部，应改用 selectByStatus + 分页接口。
+    -->
     <select id="selectAll" resultMap="ShowResultMap">
         SELECT <include refid="Columns"/>
         FROM `show`
         ORDER BY create_time DESC
+        LIMIT 1000
     </select>
 
     <select id="selectByStatus" resultMap="ShowResultMap">

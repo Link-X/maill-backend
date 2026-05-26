@@ -51,6 +51,13 @@
         SELECT COUNT(*) FROM show_subscribe WHERE user_id = #{userId}
     </select>
 
+    <!--
+      性能：将 DATE_SUB(open_sale_time, INTERVAL ss.notify_before_minutes MINUTE) <= now
+      改写为 open_sale_time <= DATE_ADD(now, INTERVAL ss.notify_before_minutes MINUTE)；
+      并对 open_sale_time 加上 24h 窗口范围谓词，使 idx_open_sale_time 可用，
+      把扫描限制在 "未来 24h 内开售" 的 show 上(默认 notify_before_minutes 远小于 1440)。
+      若有大于 1440 的提醒需求,把下面的 1440 调大或改用 schema 冗余字段。
+    -->
     <select id="selectPendingPre" resultMap="SubscribeMap">
         SELECT ss.id, ss.user_id, ss.show_id, ss.notify_before_minutes,
                ss.notified_pre, ss.notified_open, ss.create_time, ss.update_time,
@@ -60,8 +67,9 @@
         JOIN `show` s ON s.id = ss.show_id
         WHERE ss.notified_pre = 0
           AND s.open_sale_time IS NOT NULL
-          AND DATE_SUB(s.open_sale_time, INTERVAL ss.notify_before_minutes MINUTE) &lt;= #{now}
           AND s.open_sale_time &gt; #{now}
+          AND s.open_sale_time &lt;= DATE_ADD(#{now}, INTERVAL 1440 MINUTE)
+          AND s.open_sale_time &lt;= DATE_ADD(#{now}, INTERVAL ss.notify_before_minutes MINUTE)
         LIMIT 200
     </select>
 

@@ -16,6 +16,26 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 4
+          min-idle: 1
+          max-wait: 2000ms
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:guest}
+    password: ${RABBITMQ_PASS:guest}
+    # Publisher Confirm + Returns：admin 端搜索同步等消息丢失告警链路
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    listener:
+      simple:
+        # search.sync.queue 等异步索引更新；admin 端 QPS 低，2 并发足够
+        concurrency: 2
+        max-concurrency: 4
+        prefetch: 16
 
 snowflake:
   # 必须通过 SNOWFLAKE_WORKER_ID 环境变量注入,每副本唯一(0-31),未配置启动会报错

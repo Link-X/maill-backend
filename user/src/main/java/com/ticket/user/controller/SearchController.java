@@ -3,6 +3,7 @@ package com.ticket.user.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ticket.common.es.index.EsIndices;
 import com.ticket.common.result.Result;
+import com.ticket.user.config.NoLogin;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.elasticsearch.action.search.SearchRequest;
@@ -23,6 +24,8 @@ import java.time.Duration;
 import java.util.*;
 
 @Tag(name = "搜索", description = "搜索演出 / 艺人 / 资讯 + 搜索历史")
+// 搜索本身允许游客访问；历史记录依赖登录态(未登录时 historyKey() 返回 null 自动跳过)
+@NoLogin
 @RestController
 @RequestMapping("/api/search")
 public class SearchController {

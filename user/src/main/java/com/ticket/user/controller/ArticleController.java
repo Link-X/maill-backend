@@ -3,6 +3,7 @@ package com.ticket.user.controller;
 import com.ticket.common.result.Result;
 import com.ticket.core.domain.entity.Article;
 import com.ticket.core.service.ArticleService;
+import com.ticket.user.config.NoLogin;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.*;
@@ -11,6 +12,7 @@ import java.util.List;
 import java.util.Map;
 
 @Tag(name = "资讯", description = "用户端资讯列表/详情")
+@NoLogin
 @RestController
 @RequestMapping("/api/article")
 public class ArticleController {

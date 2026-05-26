@@ -87,26 +87,16 @@ public class TicketService {
         List<OrderItem> orderItems = orderItemMapper.selectByOrderId(orderId);
 
         // 2. 为每个订单项生成对应的票券
+        // 票号基于 snowflake id 确定性编码生成,Snowflake 全局唯一保证票号唯一,
+        // 不再做 SELECT 查重循环(高峰期单订单可减少 N 次 DB 查询)
         List<Ticket> tickets = new ArrayList<>();
         for (OrderItem item : orderItems) {
             Ticket ticket = new Ticket();
-            ticket.setId(snowflake.nextId());
+            long ticketId = snowflake.nextId();
+            ticket.setId(ticketId);
             ticket.setSeatId(item.getSeatId());
             ticket.setQrCode(UUID.randomUUID().toString());
-
-            // 生成唯一的票号
-            String ticketNo;
-            int retryCount = 0;
-            final int MAX_RETRIES = 100;
-            do {
-                if (retryCount >= MAX_RETRIES) {
-                    throw new BusinessException(ErrorCode.SYSTEM_ERROR, "生成票号失败：达到最大重试次数");
-                }
-                ticketNo = TicketNoGenerator.generate();
-                retryCount++;
-            } while (ticketMapper.selectByTicketNo(ticketNo) != null);
-
-            ticket.setTicketNo(ticketNo);
+            ticket.setTicketNo(TicketNoGenerator.fromId(ticketId));
             ticket.setOrderId(orderId);
             ticket.setUserId(userId);
             ticket.setStatus(0);

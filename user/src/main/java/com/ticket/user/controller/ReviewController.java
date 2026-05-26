@@ -4,6 +4,7 @@ import com.ticket.common.result.Result;
 import com.ticket.core.domain.entity.ShowReview;
 import com.ticket.core.domain.entity.ShowReviewReport;
 import com.ticket.core.service.ReviewService;
+import com.ticket.user.config.NoLogin;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.Data;
@@ -41,6 +42,7 @@ public class ReviewController {
     }
 
     @Operation(summary = "一级评价列表(sort=latest|hottest)")
+    @NoLogin
     @GetMapping("/list")
     public Result<Map<String, Object>> list(
             @RequestParam @NotNull Long showId,
@@ -52,6 +54,7 @@ public class ReviewController {
     }
 
     @Operation(summary = "二级回复列表")
+    @NoLogin
     @GetMapping("/replies")
     public Result<Map<String, Object>> replies(
             @RequestParam @NotNull Long parentId,
@@ -62,6 +65,7 @@ public class ReviewController {
     }
 
     @Operation(summary = "评价详情")
+    @NoLogin
     @GetMapping("/detail/{id}")
     public Result<ShowReview> detail(@PathVariable Long id) {
         Long userId = currentUserIdOrNull();

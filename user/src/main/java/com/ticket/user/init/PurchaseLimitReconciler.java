@@ -30,7 +30,17 @@ public class PurchaseLimitReconciler implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
+        // 异步执行：selectActiveSeatCounts 会扫 order_item JOIN order 聚合，
+        // 数据量大时(百万级)RT 可达秒级，同步执行会让 ApplicationRunner 阻塞健康检查就绪窗口。
+        // 后台线程跑，期间业务先以可能略偏差的限购计数运行，对账完成后覆盖矫正。
+        Thread t = new Thread(this::reconcile, "purchase-limit-reconciler");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    private void reconcile() {
         try {
+            long start = System.currentTimeMillis();
             List<Map<String, Object>> rows = orderItemMapper.selectActiveSeatCounts();
             if (rows.isEmpty()) {
                 log.info("限购对账：无活跃订单，跳过");
@@ -42,7 +52,8 @@ public class PurchaseLimitReconciler implements ApplicationRunner {
                 int  seatCount = toInt(row.get("seatCount"));
                 purchaseLimitService.resetCount(sessionId, userId, seatCount);
             }
-            log.info("限购对账完成，共修正 {} 条记录", rows.size());
+            log.info("限购对账完成，共修正 {} 条记录, 耗时 {} ms",
+                    rows.size(), System.currentTimeMillis() - start);
         } catch (Exception e) {
             // 对账失败不阻断启动，仅记录告警
             log.error("限购对账失败，服务正常启动但限购计数可能偏差: {}", e.getMessage(), e);

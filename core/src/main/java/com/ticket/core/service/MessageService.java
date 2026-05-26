@@ -137,17 +137,36 @@ public class MessageService {
 
     /**
      * 各类型 + 总未读数(懒生成后再统计)
+     * 性能：一次 GROUP BY 取所有类型计数，应用层组装。
      */
     @Transactional
     public Map<String, Integer> unreadCounts(Long userId) {
         userMessageMapper.lazyInsertBroadcastsFor(userId);
         Map<String, Integer> r = new HashMap<>();
-        r.put("order", userMessageMapper.countUnreadByType(userId, TYPE_ORDER));
-        r.put("openSale", userMessageMapper.countUnreadByType(userId, TYPE_OPEN_SALE));
-        r.put("system", userMessageMapper.countUnreadByType(userId, TYPE_SYSTEM));
-        r.put("interaction", userMessageMapper.countUnreadByType(userId, TYPE_INTERACTION));
-        r.put("followFeed", userMessageMapper.countUnreadByType(userId, TYPE_FOLLOW_FEED));
-        r.put("total", userMessageMapper.countUnreadAll(userId));
+        r.put("order", 0);
+        r.put("openSale", 0);
+        r.put("system", 0);
+        r.put("interaction", 0);
+        r.put("followFeed", 0);
+        int total = 0;
+        List<Map<String, Object>> rows = userMessageMapper.countUnreadGroupByType(userId);
+        for (Map<String, Object> row : rows) {
+            Number typeNum = (Number) row.get("type");
+            Number cntNum = (Number) row.get("cnt");
+            if (typeNum == null || cntNum == null) continue;
+            int type = typeNum.intValue();
+            int cnt = cntNum.intValue();
+            total += cnt;
+            switch (type) {
+                case TYPE_ORDER:       r.put("order", cnt); break;
+                case TYPE_OPEN_SALE:   r.put("openSale", cnt); break;
+                case TYPE_SYSTEM:      r.put("system", cnt); break;
+                case TYPE_INTERACTION: r.put("interaction", cnt); break;
+                case TYPE_FOLLOW_FEED: r.put("followFeed", cnt); break;
+                default: break;
+            }
+        }
+        r.put("total", total);
         return r;
     }
 

@@ -87,8 +87,8 @@ public class RateLimitAspect {
     }
 
     private void enforce(RateLimit limit, String methodKey, Long userId, String ip) {
-        long windowSecond = System.currentTimeMillis() / 1000 / limit.window();
-        String key = buildKey(limit.type(), methodKey, userId, ip, windowSecond);
+        // 滑动窗口算法：key 不再含时间桶后缀,时间维度由 ZSET score 体现
+        String key = buildKey(limit.type(), methodKey, userId, ip);
 
         boolean allowed = rateLimitService.isAllowed(key, limit.limit(), limit.window());
         if (!allowed) {
@@ -99,15 +99,15 @@ public class RateLimitAspect {
         }
     }
 
-    private String buildKey(LimitType type, String methodKey, Long userId, String ip, long windowSecond) {
+    private String buildKey(LimitType type, String methodKey, Long userId, String ip) {
         switch (type) {
             case GLOBAL:
-                return RedisKeys.rateLimitGlobal(methodKey, windowSecond);
+                return RedisKeys.rateLimitGlobal(methodKey);
             case USER:
                 if (userId == null) throw new BusinessException(ErrorCode.UNAUTHORIZED);
-                return RedisKeys.rateLimitUser(userId, methodKey, windowSecond);
+                return RedisKeys.rateLimitUser(userId, methodKey);
             case IP:
-                return RedisKeys.rateLimitIp(ip != null ? ip : "unknown", methodKey, windowSecond);
+                return RedisKeys.rateLimitIp(ip != null ? ip : "unknown", methodKey);
             default:
                 throw new IllegalArgumentException("未知限流类型: " + type);
         }

@@ -60,21 +60,19 @@ public class RedisKeys {
         return "order:request:" + requestId;
     }
 
-    /** 场次抢票限流计数（固定窗口，key 含秒级时间戳） */
-    public static String submitRateLimit(long sessionId, long windowSecond) {
-        return "rate:submit:" + sessionId + ":" + windowSecond;
+    // 限流 key：滑动窗口算法,窗口内所有请求共用同一 key,
+    // 时间维度由 ZSET score 体现,不再需要 windowSecond 时间桶后缀。
+
+    public static String rateLimitGlobal(String methodKey) {
+        return "rate:global:" + methodKey;
     }
 
-    public static String rateLimitGlobal(String methodKey, long windowSecond) {
-        return "rate:global:" + methodKey + ":" + windowSecond;
+    public static String rateLimitUser(long userId, String methodKey) {
+        return "rate:user:" + userId + ":" + methodKey;
     }
 
-    public static String rateLimitUser(long userId, String methodKey, long windowSecond) {
-        return "rate:user:" + userId + ":" + methodKey + ":" + windowSecond;
-    }
-
-    public static String rateLimitIp(String ip, String methodKey, long windowSecond) {
-        return "rate:ip:" + ip + ":" + methodKey + ":" + windowSecond;
+    public static String rateLimitIp(String ip, String methodKey) {
+        return "rate:ip:" + ip + ":" + methodKey;
     }
 
     public static String blacklistUser(long userId) {
@@ -83,5 +81,10 @@ public class RedisKeys {
 
     public static String blacklistIp(String ip) {
         return "blacklist:ip:" + ip;
+    }
+
+    /** 资讯浏览数累计 Hash：field=articleId, value=未回写的增量 */
+    public static String articleViewBuffer() {
+        return "article:view:buffer";
     }
 }

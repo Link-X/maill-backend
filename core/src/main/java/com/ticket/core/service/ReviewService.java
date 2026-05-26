@@ -326,6 +326,10 @@ public class ReviewService {
 
     public Map<String, Object> adminList(Long showId, Integer status, String keyword,
                                          Integer page, Integer size) {
+        // 性能保护：keyword 是 LIKE '%kw%' 全表扫，必须配合 showId 或 status 收窄扫描范围
+        if (keyword != null && !keyword.trim().isEmpty() && showId == null && status == null) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR, "搜索关键词需配合 showId 或 status 之一");
+        }
         Integer offset = (page != null && size != null) ? (page - 1) * size : null;
         List<ShowReview> list = reviewMapper.selectAdminList(showId, status, keyword, offset, size);
         attachImagesAndLikes(list, null);

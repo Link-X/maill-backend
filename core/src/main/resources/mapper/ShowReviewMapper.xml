@@ -112,6 +112,13 @@
         SELECT COUNT(*) FROM show_review WHERE show_id = #{showId} AND parent_id IS NULL
     </select>
 
+    <!--
+      性能说明:
+      - keyword 走 LIKE '%kw%' 全表扫描,百万行级别延迟会明显;
+        建议调用方在 keyword 非空时必须传 showId 或 status 之一以利用索引前缀
+        (Service 层已加校验,见 ReviewService.adminList)。
+      - 如需大表自由全文搜索,建议为评价新建 ES 索引并改走 ES。
+    -->
     <select id="selectAdminList" resultMap="ReviewMap">
         SELECT r.id, r.show_id, r.user_id, r.order_id, r.parent_id, r.reply_to_user_id,
                r.content, r.rating, r.like_count, r.reply_count, r.status,

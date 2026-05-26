@@ -6,7 +6,6 @@ import com.ticket.core.service.MessageService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -26,8 +25,11 @@ public class SubscribeNotifier {
         this.messageService = messageService;
     }
 
+    // 不加 @Transactional：外层事务会让 sendSingle(REQUIRED) 加入外层；
+    // 一旦循环中 catch 吞掉异常，外层已被 Spring 标 rollback-only，
+    // 提交时抛 UnexpectedRollbackException，会导致已成功的 markNotifiedPre 全部回滚 → 重复推送。
+    // 让每条订阅各自独立：sendSingle 走自己的事务，markNotifiedPre 是单 UPDATE。
     @Scheduled(cron = "0 * * * * ?")
-    @Transactional
     public void scanPre() {
         LocalDateTime now = LocalDateTime.now();
         List<ShowSubscribe> pending = mapper.selectPendingPre(now);
@@ -52,7 +54,6 @@ public class SubscribeNotifier {
     }
 
     @Scheduled(cron = "0 * * * * ?")
-    @Transactional
     public void scanOpen() {
         LocalDateTime now = LocalDateTime.now();
         List<ShowSubscribe> pending = mapper.selectPendingOpen(now);

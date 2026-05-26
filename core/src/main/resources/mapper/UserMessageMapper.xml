@@ -88,4 +88,13 @@
         SELECT COUNT(*) FROM user_message
         WHERE user_id = #{userId} AND is_read = 0
     </select>
+
+    <!-- 单次取所有类型未读数(性能优化:替代 6 次 COUNT) -->
+    <select id="countUnreadGroupByType" resultType="java.util.Map">
+        SELECT m.type AS type, COUNT(*) AS cnt
+        FROM user_message um
+        JOIN message m ON m.id = um.message_id
+        WHERE um.user_id = #{userId} AND um.is_read = 0
+        GROUP BY m.type
+    </select>
 </mapper>

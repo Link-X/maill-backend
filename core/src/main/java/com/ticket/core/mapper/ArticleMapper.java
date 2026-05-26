@@ -22,6 +22,9 @@ public interface ArticleMapper {
 
     int incrViewCount(@Param("id") Long id);
 
+    /** 批量累加(由 Redis 缓冲区定时回写调用) */
+    int incrViewCountBy(@Param("id") Long id, @Param("delta") long delta);
+
     Article selectById(@Param("id") Long id);
 
     /**

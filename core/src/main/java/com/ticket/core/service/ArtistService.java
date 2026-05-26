@@ -48,7 +48,7 @@ public class ArtistService {
             artist.setUpdateTime(now);
             artistMapper.insert(artist);
             // 发送搜索同步事件
-            searchSyncProducer.send(SearchSyncEvent.upsert("artist", artist.getId()));
+            searchSyncProducer.sendAfterCommit(SearchSyncEvent.upsert("artist", artist.getId()));
             return artist;
         }
         Artist exist = artistMapper.selectById(artist.getId());
@@ -63,7 +63,7 @@ public class ArtistService {
         artist.setUpdateTime(now);
         artistMapper.update(artist);
         // 发送搜索同步事件
-        searchSyncProducer.send(SearchSyncEvent.upsert("artist", artist.getId()));
+        searchSyncProducer.sendAfterCommit(SearchSyncEvent.upsert("artist", artist.getId()));
         return artistMapper.selectById(artist.getId());
     }
 
@@ -74,14 +74,14 @@ public class ArtistService {
         }
         artistMapper.updateStatus(id, status, LocalDateTime.now());
         // 状态变化也需要同步到 ES
-        searchSyncProducer.send(SearchSyncEvent.upsert("artist", id));
+        searchSyncProducer.sendAfterCommit(SearchSyncEvent.upsert("artist", id));
     }
 
     @Transactional
     public void delete(Long id) {
         artistMapper.deleteById(id);
         // 同步删除 ES 文档
-        searchSyncProducer.send(SearchSyncEvent.delete("artist", id));
+        searchSyncProducer.sendAfterCommit(SearchSyncEvent.delete("artist", id));
     }
 
     public Artist getById(Long id) {

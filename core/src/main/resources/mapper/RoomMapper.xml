@@ -37,9 +37,11 @@
         FROM room WHERE id = #{id}
     </select>
 
+    <!-- admin 后台下拉用，加 LIMIT 兜底 -->
     <select id="selectAll" resultMap="RoomResultMap">
         SELECT id, name, venue, row_count, col_count, description, create_time, update_time
         FROM room ORDER BY create_time DESC
+        LIMIT 1000
     </select>
 
 </mapper>

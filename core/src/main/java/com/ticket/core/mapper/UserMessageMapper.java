@@ -4,6 +4,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 @Mapper
 public interface UserMessageMapper {
@@ -24,4 +25,11 @@ public interface UserMessageMapper {
 
     int countUnreadByType(@Param("userId") Long userId, @Param("type") Integer type);
     int countUnreadAll(@Param("userId") Long userId);
+
+    /**
+     * 一次性按消息类型 GROUP BY 取未读计数。
+     * 返回 [{type:1, cnt:N}, ...]，应用层组装并 SUM 出 total。
+     * 替代 5 次 countUnreadByType + 1 次 countUnreadAll 的 6 连查。
+     */
+    List<Map<String, Object>> countUnreadGroupByType(@Param("userId") Long userId);
 }
