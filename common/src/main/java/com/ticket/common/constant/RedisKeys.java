@@ -87,4 +87,12 @@ public class RedisKeys {
     public static String articleViewBuffer() {
         return "article:view:buffer";
     }
+
+    /**
+     * 异步建单临时状态:value 取 "PROCESSING" 或 "FAILED:<reason>",TTL 60s 兜底自动清。
+     * 消费者建单成功后会主动 DELETE 此 key,前端按 orderNo 查 DB 命中后即为成功。
+     */
+    public static String orderCreatePending(String orderNo) {
+        return "order:create:pending:" + orderNo;
+    }
 }

@@ -1,0 +1,116 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "options": { "0": { "color": "red", "text": "DOWN" } }, "type": "value" },
+            { "options": { "1": { "color": "green", "text": "UP" } }, "type": "value" }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        }
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "id": 1,
+      "options": { "colorMode": "background", "graphMode": "none", "textMode": "value_and_name" },
+      "targets": [{ "expr": "up{job=~\"ticket-.*\"}", "legendFormat": "{{application}}", "refId": "A" }],
+      "title": "应用 Up/Down",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] } }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 6, "y": 0 },
+      "id": 2,
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [{ "expr": "sum by (application) (rate(http_server_requests_seconds_count[1m]))", "legendFormat": "{{application}}", "refId": "A" }],
+      "title": "HTTP 请求 QPS",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percentunit" } },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 4 },
+      "id": 3,
+      "options": {
+        "fieldOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "horizontal",
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "targets": [{ "expr": "sum by (application) (jvm_memory_used_bytes{area=\"heap\"}) / sum by (application) (jvm_memory_max_bytes{area=\"heap\"})", "legendFormat": "{{application}}", "refId": "A" }],
+      "title": "JVM Heap 使用率",
+      "type": "gauge"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "id": 4,
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum by (le, application) (rate(http_server_requests_seconds_bucket[1m])))", "legendFormat": "{{application}} p95", "refId": "A" },
+        { "expr": "histogram_quantile(0.99, sum by (le, application) (rate(http_server_requests_seconds_bucket[1m])))", "legendFormat": "{{application}} p99", "refId": "B" }
+      ],
+      "title": "HTTP 响应延迟 p95/p99",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "id": 5,
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "expr": "hikaricp_connections_active{}", "legendFormat": "{{application}} active", "refId": "A" },
+        { "expr": "hikaricp_connections_pending{}", "legendFormat": "{{application}} pending", "refId": "B" }
+      ],
+      "title": "HikariCP 连接(active/pending)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps" } },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "id": 6,
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [{ "expr": "sum by (application, status) (rate(http_server_requests_seconds_count{status=~\"5..\"}[1m]))", "legendFormat": "{{application}} {{status}}", "refId": "A" }],
+      "title": "HTTP 5xx 错误 QPS",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "ops" } },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "id": 7,
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "expr": "sum by (application) (rate(rabbitmq_published_total[1m]))", "legendFormat": "{{application}} published", "refId": "A" },
+        { "expr": "sum by (application) (rate(rabbitmq_consumed_total[1m]))", "legendFormat": "{{application}} consumed", "refId": "B" }
+      ],
+      "title": "RabbitMQ 消息速率",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 39,
+  "tags": ["ticket"],
+  "templating": { "list": [] },
+  "time": { "from": "now-30m", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Ticket 系统概览",
+  "uid": "ticket-overview",
+  "version": 1,
+  "weekStart": ""
+}

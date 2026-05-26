@@ -9,6 +9,11 @@ import java.util.List;
 @Data
 public class OrderCreateRequest {
     /**
+     * 预生成的雪花订单号(由 submit 接口生成,异步建单消费者用同一个 orderNo INSERT,
+     * 充当幂等 key + 前端轮询凭证)。可空,空时由 service 内部生成。
+     */
+    private String orderNo;
+    /**
      * 用户ID
      */
     private Long userId;

@@ -10,7 +10,7 @@
 
 [English](README.md)
 
-面向千～万级并发场景的抢票系统后端，支持演出管理、选座购票、Redis 库存管理、订单超时自动取消、Mock 支付、入场核验及部分退款。采用 Maven 多模块架构，各模块独立部署。
+面向千级持续 QPS + 万级抢票峰值场景设计的抢票系统后端,架构层面覆盖了核心模式(Redis Lua 原子锁座、本地缓存 + pub/sub 失效、异步建单、MQ 驱动订单超时、分布式调度、状态机乐观锁等),真正达到生产万级仍需横向扩展 + 库存分片。功能含演出管理、选座购票、Redis 库存、订单超时、Mock 支付、入场核验、部分退款、全文搜索、站内消息、评价、监控等。Maven 多模块架构,独立部署。
 
 > **配套前端仓库**：[Link-X/maill-frontend](https://github.com/Link-X/maill-frontend)
 
@@ -28,16 +28,20 @@
 - **资讯中心**：`article_category` + `article` 双表；草稿/已发布/已下架三态；支持封面图、富文本、关联艺人，用户端列表按分类+发布时间倒序
 - **首页 Banner**：`banner` 表支持图片+跳转目标（演出/艺人/资讯/外链）；定时上下架（`start_at`/`end_at`）+ 排序；用户端 `/api/banner/list` 一次取回有效轮播
 - **收藏分组**：`favorite_group` + `user_favorite`；用户可自定义分组（默认未分组），收藏唯一约束 `(user_id, show_id)`，支持跨分组移动
-- **开售提醒**：演出可设 `open_sale_time`，用户订阅（`show_subscribe`）后由 `SubscribeNotifier` 每分钟扫描定时任务，开售前 N 分钟与开售时刻分别推送站内信，幂等标记 `notified_pre`/`notified_open`
+- **开售提醒**:订阅维度=演出,推送维度=场次。`SubscribeNotifier` 每分钟扫描,按 `(订阅, 开售日)` 分组,同演出同日多场合并成一条消息(如"今日 3 场即将开售:18:00 / 20:30 / 22:00"),避免巡演场景下消息洪水。按场次幂等存于 `show_subscribe_session_notify`
 - **站内消息**：`message` + `user_message` 两表分离；支持单发/广播（订单/开售/系统/互动/关注动态五类），用户端列表/未读数/标记已读/批量删除
 - **演出评价**：一级评论 + 二级回复（`parent_id` 自关联）；评分仅一级且 1-5 星；图片晒图、点赞（去重 `uk_review_user`）、举报、管理端审核（隐藏/恢复/删除）；演出可配置 `review_mode`（无评价/所有可评/仅已观看）+ `avg_rating`/`review_count` 冗余统计
 - **统计报表**：管理端 `/api/admin/report/*` 提供 11 个聚合接口（概览/趋势/按演出/分类/城市/状态/时段/场次售罄率/用户/退款/取消率）；时间窗口支持 1d/7d/30d/90d 滚动或自定义；结果 Redis 5 分钟缓存，无需关心 N+1。订单表 `refund_amount` 累计、`cancel_reason` 区分用户/超时取消
 - **全文搜索**：Elasticsearch 8.x 异步索引演出/艺人/资讯三类文档；业务写操作发布 `search.sync.queue` 事件，`SearchSyncConsumer` 落 ES，`IndexInitializer` 启动时幂等建索引；ES 不可用时降级，不阻塞业务
-- **抢票核心**：Lua 原子限购检查 + Redis 批量锁座（任一失败全量回滚）+ 同步建单
-- **防超卖**：Redis Set 原子扣库存，DB 层二次校验兜底
-- **订单超时**：RabbitMQ TTL + 死信队列，5 分钟精准触发取消并释放库存
-- **异步事件**：支付成功后通过 RabbitMQ Fanout 并行触发票券生成、DB 库存同步、通知（预留）
-- **退款**：支持整单退款与单票退款；已部分退款订单（状态 5）可继续退剩余未使用票
+- **抢票核心(异步建单)**:`/api/order/submit` 同步只做"校验 + 限购 + Lua 批量锁座 + 预生成 orderNo + 发 MQ",立即返回(约 5ms)。真正 `INSERT order` 由 `OrderCreateConsumer` 异步消费,前端用 orderNo 轮询 `/api/order/createStatus` 直到 SUCCESS/FAILED。锁座与 DB 写入解耦,单实例 QPS 上限从几百提升到几千
+- **防超卖**:Redis Set 原子扣库存,DB 层二次校验兜底
+- **订单超时**:RabbitMQ TTL + 死信队列,5 分钟精准触发取消并释放库存
+- **异步事件**:支付成功后通过 RabbitMQ Fanout 并行触发票券生成、DB 库存同步、通知(预留)
+- **退款**:支持整单退款与单票退款;已部分退款订单(状态 5)可继续退剩余未使用票
+- **场次状态机自动流转**:`SessionLifecycleScheduler` 到 `openSaleTime` 自动 `0→1`(自动 warmup Redis 库存 + 开售),到 `endTime` 自动 `0/1→2`(结束)。管理员只配数据,无需手动发布/预热,流转用乐观锁保证幂等
+- **本地缓存 + pub/sub 失效**:座位结构 / 价格 / 演出 / 城市走 Caffeine,防止热门场次刷新打爆 DB。写操作通过 Redis pub/sub 广播,毫秒级使各实例 Caffeine 失效(多实例一致性)。场次信息(含可变 status)直查 DB 不入缓存,避免多实例下读到旧状态
+- **分布式调度(ShedLock)**:所有 `@Scheduled` 任务通过 Redis 锁互斥,多实例部署下同一时刻只有一个实例真正执行;持锁实例挂了下一分钟其他实例自动接管(故障转移)
+- **可观测性(Prometheus + Grafana)**:所有应用暴露 `/actuator/prometheus`,自带 docker-compose 起 Prometheus + Grafana,预置概览看板(JVM 堆、HTTP QPS、p95/p99、HikariCP 连接池、5xx 错误率、RabbitMQ 消息速率)
 - **注解限流**：`@RateLimit` 注解支持全局 / 用户 / IP 三维度固定窗口限流 + 黑名单拦截
 - **参数校验**：admin 写接口用专用 `*Request` DTO + `@Valid` 严格约束（前端无法传 id / status / createTime 等不该暴露字段）；全局异常处理统一返回友好错误信息
 - **链路追踪**：`TraceIdFilter` 在请求入口生成 traceId，注入 MDC、写入响应头 `X-Trace-Id` 与 Result body `traceId` 字段，便于排障
@@ -54,11 +58,14 @@
 | 后端框架 | Spring Boot | 3.2.x / JDK 17 |
 | ORM | MyBatis | 3.5.x |
 | 缓存 / 分布式锁 | Redis + Redisson | 7.x / 3.27.x |
+| 本地缓存 | Caffeine | (Spring Boot 管理) |
+| 分布式调度 | ShedLock | 5.13.x |
 | 消息队列 | RabbitMQ | 3.x |
 | 数据库 | MySQL | 8.x |
 | 全文搜索 | Elasticsearch (Java API Client) | 8.13.x |
 | 对象存储 | MinIO (S3 兼容) | 8.5.x SDK |
 | 鉴权 | Spring Security + JJWT | 0.12.x |
+| 监控 | Micrometer + Prometheus + Grafana | 1.x / 2.51 / 10.4 |
 | 构建 | Maven | — |
 
 ---
@@ -70,7 +77,12 @@ maill-backend/
 ├── common/      # 通用工具：响应封装、异常、雪花ID、RedisKeys、@RateLimit AOP、黑名单、TraceIdFilter
 │   └── es/      # Elasticsearch 客户端配置 + 索引 mapping + IndexInitializer（启动幂等建索引）
 ├── core/        # 核心业务：实体、Mapper、Service、MQ Producer/Consumer、JsonMapTypeHandler
-│   └── scheduler/ # 定时任务：SubscribeNotifier（开售提醒每分钟扫描）
+│   ├── cache/     # CacheInvalidationBroadcaster/Listener：Redis pub/sub 广播 Caffeine 失效(多实例一致性)
+│   ├── config/    # ShedLockConfig(Redis 分布式锁)、CacheInvalidationConfig(pub/sub 订阅)等
+│   └── scheduler/ # 定时任务(全部 @SchedulerLock 互斥)：
+│                  #   SubscribeNotifier(开售提醒,按场次按日合并)
+│                  #   SessionLifecycleScheduler(场次状态自动流转 0→1 + 0/1→2)
+│                  #   ArticleViewFlushScheduler(资讯浏览数 Redis → DB 回写)
 ├── admin/       # 管理端 REST API（端口 8081）+ Request DTO + AdminAuthInterceptor
 ├── user/        # 用户端 REST API（端口 8082）+ LoginCheckInterceptor
 ├── payment/     # 支付模块（端口 8083，预留）
@@ -121,11 +133,13 @@ common ← core ← admin
 docker-compose up -d
 ```
 
-启动 MySQL 8（3306）、Redis 7（6379）、RabbitMQ 3（5672，管理界面 15672）、MinIO（9000 API / 9001 控制台）、Elasticsearch 8.13（9200）。`sql/schema.sql` 首次运行自动执行；MinIO 的 `image` bucket（在 `application-dev.yml` 的 `minio.bucket` 配置）由 admin 启动时自动创建并设为公共读，ES 三个索引（show / artist / article）由 `IndexInitializer` 启动时幂等创建，均无需手动建。
+启动 MySQL 8(3306)、Redis 7(6379)、RabbitMQ 3(5672,管理界面 15672)、MinIO(9000 API / 9001 控制台)、Elasticsearch 8.13(9200)、Prometheus(9090)、Grafana(3000)。`sql/schema.sql` 首次运行自动执行;MinIO 的 `image` bucket(在 `application-dev.yml` 的 `minio.bucket` 配置)由 admin 启动时自动创建并设为公共读;ES 三个索引(show / artist / article)由 `IndexInitializer` 启动时幂等创建;Grafana 首次启动自动注入 Prometheus 数据源 + 预置 "Ticket 系统概览" dashboard。均无需手动建。
 
-> **RabbitMQ 管理界面**：http://localhost:15672（guest / guest）
-> **MinIO 管理控制台**：http://localhost:9001（minioadmin / minioadmin123）
-> **Elasticsearch**：http://localhost:9200（无鉴权，单节点 dev 模式）
+> **RabbitMQ 管理界面**:http://localhost:15672(guest / guest)
+> **MinIO 管理控制台**:http://localhost:9001(minioadmin / minioadmin123)
+> **Elasticsearch**:http://localhost:9200(无鉴权,单节点 dev 模式)
+> **Prometheus**:http://localhost:9090(抓取各 Spring Boot 应用 `/actuator/prometheus`)
+> **Grafana**:http://localhost:3000(admin / admin,预置"Ticket 系统概览"看板)
 
 ### 2. 编译
 
@@ -577,13 +591,35 @@ public Result<?> submit(...) { }
 
 ---
 
+## 容量评估与可观测性
+
+**真实容量**(基于当前代码 + HikariCP 调到 50):
+
+| 场景 | 可达 | 说明 |
+|------|------|------|
+| 浏览/详情 QPS | 数千 | Caffeine 本地缓存 + Redis,加机器线性扩展 |
+| 持续下单 QPS | 单实例约 2000 | 瓶颈在 MySQL 写入;抢票路径已经异步解耦 |
+| 单场万人抢票 | 需库存分片 + 读写分离 | 架构支持,见扩展方向 |
+
+**可观测性**:
+
+- 所有应用暴露 `/actuator/prometheus`(HTTP QPS / p95p99 延迟 / HikariCP 连接池 / JVM / RabbitMQ 速率)
+- `docker-compose up -d` 同时起 Prometheus + Grafana,自动注入概览看板
+- 每个响应携带 `X-Trace-Id` 头 + Result body 的 `traceId` 字段,便于排障
+
+**分布式调度**:所有 `@Scheduled` 任务通过 `@SchedulerLock` (ShedLock + Redis) 互斥,多实例部署安全,只有抢到锁的实例真正跑,其他自动 failover。
+
+---
+
 ## 扩展方向
 
-- **真实支付**：实现 `PaymentGateway` 接口对接支付宝 / 微信
-- **通知服务**：接入短信 / 推送，实现 `notification.queue` 消费者
-- **微服务化**：admin / user / payment 拆分独立部署 + API Gateway
-- **分库分表**：订单表按 `session_id` 分片
-- **CDN**：演出海报等静态资源加速；上线时把 MinIO 切换为阿里云 OSS / AWS S3，只改 `minio.endpoint` / `accessKey` 即可
+- **真实支付**:实现 `PaymentGateway` 接口对接支付宝 / 微信
+- **通知服务**:接入短信 / 推送,实现 `notification.queue` 消费者
+- **微服务化**:admin / user / payment 拆分独立部署 + API Gateway
+- **订单分表**:按 `session_id` / 月份分片
+- **库存分片**:把单场次的座位 Set 拆成 N 个分片,消除 Redis 单 key 热点
+- **读写分离**:演出/订单列表等读请求走从库
+- **CDN**:演出海报等静态资源加速;上线时把 MinIO 切换为阿里云 OSS / AWS S3,只改 `minio.endpoint` / `accessKey` 即可
 
 ---
 

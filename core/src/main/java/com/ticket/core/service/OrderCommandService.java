@@ -141,7 +141,10 @@ public class OrderCommandService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         Order order = new Order();
-        order.setOrderNo(String.valueOf(snowflake.nextId()));
+        // 优先使用调用方预生成的 orderNo(异步建单流程);兼容旧调用方未传时回退到本地生成
+        order.setOrderNo(request.getOrderNo() != null
+                ? request.getOrderNo()
+                : String.valueOf(snowflake.nextId()));
         order.setUserId(userId);
         order.setSessionId(sessionId);
         order.setTotalAmount(totalAmount);

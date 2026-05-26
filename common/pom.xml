@@ -67,6 +67,15 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-elasticsearch</artifactId>
         </dependency>
+        <!-- Actuator + Prometheus:所有应用统一暴露 /actuator/prometheus 端点供监控抓取 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
         <!-- 测试依赖 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

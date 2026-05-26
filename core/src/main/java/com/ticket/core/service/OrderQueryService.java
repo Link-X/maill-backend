@@ -38,23 +38,49 @@ public class OrderQueryService {
     private final ShowSessionMapper showSessionMapper;
     private final TicketMapper ticketMapper;
     private final CityMapper cityMapper;
+    private final org.springframework.data.redis.core.StringRedisTemplate redisTemplate;
 
     public OrderQueryService(OrderMapper orderMapper,
                              OrderItemMapper orderItemMapper,
                              ShowMapper showMapper,
                              ShowSessionMapper showSessionMapper,
                              TicketMapper ticketMapper,
-                             CityMapper cityMapper) {
+                             CityMapper cityMapper,
+                             org.springframework.data.redis.core.StringRedisTemplate redisTemplate) {
         this.orderMapper = orderMapper;
         this.orderItemMapper = orderItemMapper;
         this.showMapper = showMapper;
         this.showSessionMapper = showSessionMapper;
         this.ticketMapper = ticketMapper;
         this.cityMapper = cityMapper;
+        this.redisTemplate = redisTemplate;
     }
 
     public Order getByOrderNo(String orderNo) {
         return orderMapper.selectByOrderNo(orderNo);
+    }
+
+    /**
+     * 异步建单状态查询:
+     *  1. DB 找到订单 → SUCCESS + 订单详情
+     *  2. Redis pending = FAILED:reason → FAILED + reason
+     *  3. Redis pending = PROCESSING → PROCESSING
+     *  4. 都没有 → NOT_FOUND(可能 60s TTL 过期了)
+     */
+    public com.ticket.core.domain.dto.OrderCreateStatus getCreateStatus(String orderNo) {
+        Order order = orderMapper.selectByOrderNo(orderNo);
+        if (order != null) {
+            return com.ticket.core.domain.dto.OrderCreateStatus.success(buildStatusResponse(order));
+        }
+        String pending = redisTemplate.opsForValue()
+                .get(com.ticket.common.constant.RedisKeys.orderCreatePending(orderNo));
+        if (pending == null) {
+            return com.ticket.core.domain.dto.OrderCreateStatus.notFound();
+        }
+        if (pending.startsWith("FAILED:")) {
+            return com.ticket.core.domain.dto.OrderCreateStatus.failed(pending.substring("FAILED:".length()));
+        }
+        return com.ticket.core.domain.dto.OrderCreateStatus.processing();
     }
 
     public Order getById(Long orderId) {

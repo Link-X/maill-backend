@@ -79,9 +79,41 @@ services:
       timeout: 5s
       retries: 6
 
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: ticket-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    extra_hosts:
+      # Linux 上 host.docker.internal 默认没有,显式映射到宿主机网关
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:10.4.2
+    container_name: ticket-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      TZ: Asia/Shanghai
+    volumes:
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
 volumes:
   mysql-data:
   redis-data:
   rabbitmq-data:
   minio-data:
   es-data:
+  prometheus-data:
+  grafana-data:

@@ -10,7 +10,7 @@
 
 [中文文档](README.zh.md)
 
-A high-concurrency ticket booking backend targeting thousands to tens of thousands of concurrent users. Features show management, seat selection, Redis-based inventory, order timeout cancellation, mock payment, venue check-in verification, and partial refunds. Built with a Maven multi-module architecture for independent deployment.
+A ticket booking backend designed for thousand-level sustained QPS and ten-thousand-level peak ticket-grab scenarios. Architecture-wise it covers all the core patterns (Redis Lua atomic seat lock, local cache + pub/sub invalidation, async order creation, MQ-driven timeout cancellation, distributed scheduling, optimistic-locked state machine); reaching the upper bound at production scale still needs horizontal scaling + inventory sharding. Features show management, seat selection, Redis inventory, order timeout, mock payment, venue check-in, partial refunds, full-text search, in-app messaging, reviews, monitoring, and more. Built as a Maven multi-module project for independent deployment.
 
 > **Companion frontend repository**: [Link-X/maill-frontend](https://github.com/Link-X/maill-frontend)
 
@@ -28,16 +28,20 @@ A high-concurrency ticket booking backend targeting thousands to tens of thousan
 - **Articles (News Center)** — `article_category` + `article` tables; three-state lifecycle (draft / published / offline); cover image, rich-text content, optional artist link; user-side list orders by category + published_at DESC
 - **Home Banner** — `banner` table with image + jump target (show / artist / article / external URL); scheduled show/hide (`start_at` / `end_at`) + sort order; user-side `/api/banner/list` returns active banners in one call
 - **Favorites with Groups** — `favorite_group` + `user_favorite`; user-defined groups (NULL = uncategorized); `(user_id, show_id)` unique, supports moving across groups
-- **Open-sale Reminders** — Shows expose `open_sale_time`; users subscribe via `show_subscribe`; `SubscribeNotifier` cron task scans every minute, pushes in-app messages N minutes before sale and at sale time; idempotent via `notified_pre` / `notified_open` flags
+- **Open-sale Reminders** — Subscription is at show level, push is at session level. `SubscribeNotifier` scans every minute and groups by `(subscribe, date)` — sessions of the same show on the same day are merged into a single message (e.g. "3 sessions opening today: 18:00 / 20:30 / 22:00"), avoiding notification flooding for multi-leg tours. Per-session idempotency tracked in `show_subscribe_session_notify`
 - **In-app Messages** — Decoupled `message` + `user_message` (5 categories: order / open-sale / system / interaction / follow-activity); supports unicast & broadcast; user-side list / unread count / mark-read / batch delete
 - **Show Reviews** — One-level comments + nested replies (`parent_id` self-reference); 1-5 star rating on top-level only; image attachments, likes (deduped via `uk_review_user`), reports, admin moderation (hide / restore / delete); per-show `review_mode` (disabled / open / verified-attendees) + `avg_rating` / `review_count` denormalized counters
 - **Reporting** — Admin `/api/admin/report/*` exposes 11 aggregate endpoints (overview / time series / by show / category / city / status / hour / session fill-rate / user / refund / cancellation); rolling time windows (1d/7d/30d/90d) or custom; results cached in Redis for 5 minutes. The `order` table now tracks `refund_amount` cumulatively and a `cancel_reason` to distinguish user-cancelled vs. timeout-cancelled
 - **Full-text Search** — Elasticsearch 8.x indexes three doc types (show / artist / article) asynchronously; write paths publish to `search.sync.queue`, `SearchSyncConsumer` upserts ES, `IndexInitializer` creates indices idempotently on startup; degrades gracefully when ES is unavailable
-- **Booking Core** — Lua atomic purchase-limit check + Redis batch seat lock (full rollback on any failure) + synchronous order creation
+- **Booking Core (Async Order Creation)** — `/api/order/submit` synchronously does only "validate + purchase-limit + Lua batch lock + pre-generate orderNo + publish MQ", returns immediately (~5ms). Actual `INSERT order` is consumed by `OrderCreateConsumer`; the frontend polls `/api/order/createStatus` with the orderNo until SUCCESS/FAILED. Decouples seat-lock from DB writes — under load the per-instance QPS ceiling jumps from a few hundred to a few thousand
 - **Oversell Prevention** — Redis Set atomic `SREM` deduction + DB-level safety check
 - **Order Timeout** — RabbitMQ TTL + dead-letter queue, cancels order and releases inventory exactly 5 minutes after creation
 - **Async Events** — After payment, RabbitMQ Fanout fan-out triggers ticket generation, DB inventory sync, and notification (reserved) in parallel
 - **Refunds** — Full-order and per-ticket refunds; partially-refunded orders (status 5) can continue to refund remaining unused tickets
+- **Session State Machine (auto-flow)** — `SessionLifecycleScheduler` flips `0 → 1` (auto-warmup Redis + open sale) at `openSaleTime` and `0/1 → 2` (ended) at `endTime`. Admin only configures data, no manual publish/warmup needed. Optimistic-lock on state transitions
+- **Local Cache + pub/sub Invalidation** — Seat structure / price / show / city cached in Caffeine to keep hot sessions from hitting the DB on refresh. Writes broadcast via Redis pub/sub to invalidate Caffeine on all instances within milliseconds (multi-instance consistency). Session info (with mutable `status`) bypasses cache and reads DB directly to avoid stale state under multi-instance deploys
+- **Distributed Scheduling (ShedLock)** — All `@Scheduled` tasks are mutually-exclusive across JVM instances via Redis-backed ShedLock: only one instance executes per tick; if it crashes another picks up next tick (failover). Replaces single-instance scheduling
+- **Observability (Prometheus + Grafana)** — All apps expose `/actuator/prometheus`; the bundled `docker-compose` ships Prometheus + Grafana with a preloaded overview dashboard (JVM heap, HTTP QPS, p95/p99 latency, HikariCP pool, 5xx error rate, RabbitMQ rates)
 - **Annotation Rate Limiting** — `@RateLimit` annotation supports GLOBAL / USER / IP three-dimensional fixed-window rate limiting + blacklist interception
 - **Parameter Validation** — Admin write endpoints use dedicated `*Request` DTOs with `@Valid` (clients cannot inject `id` / `status` / `createTime` etc.); global exception handler returns unified friendly errors
 - **Trace ID** — `TraceIdFilter` issues a per-request trace id, pushes it to MDC, returns it via the `X-Trace-Id` response header and the `traceId` field on every Result body — perfect for client/server log correlation
@@ -54,11 +58,14 @@ A high-concurrency ticket booking backend targeting thousands to tens of thousan
 | Framework | Spring Boot | 3.2.x / JDK 17 |
 | ORM | MyBatis | 3.5.x |
 | Cache / Lock | Redis + Redisson | 7.x / 3.27.x |
+| Local Cache | Caffeine | (managed by Spring Boot) |
+| Distributed Scheduling | ShedLock | 5.13.x |
 | Message Queue | RabbitMQ | 3.x |
 | Database | MySQL | 8.x |
 | Full-text Search | Elasticsearch (Java API Client) | 8.13.x |
 | Object Storage | MinIO (S3-compatible) | 8.5.x SDK |
 | Auth | Spring Security + JJWT | 0.12.x |
+| Monitoring | Micrometer + Prometheus + Grafana | 1.x / 2.51 / 10.4 |
 | Build | Maven | — |
 
 ---
@@ -70,7 +77,12 @@ maill-backend/
 ├── common/      # Utilities: response wrapper, exceptions, Snowflake ID, RedisKeys, @RateLimit AOP, blacklist, TraceIdFilter
 │   └── es/      # Elasticsearch client config + index mappings + IndexInitializer (idempotent index creation on startup)
 ├── core/        # Core business: entities, Mappers, Services, MQ Producer/Consumer, JsonMapTypeHandler
-│   └── scheduler/ # Cron tasks: SubscribeNotifier (per-minute open-sale reminder scan)
+│   ├── cache/     # CacheInvalidationBroadcaster/Listener: Redis pub/sub for multi-instance Caffeine invalidation
+│   ├── config/    # ShedLockConfig (Redis lock provider), CacheInvalidationConfig (pub/sub registration), etc.
+│   └── scheduler/ # Cron tasks (all guarded by @SchedulerLock):
+│                  #   SubscribeNotifier (open-sale reminders, batches sessions of same day)
+│                  #   SessionLifecycleScheduler (status 0→1 auto-warmup + 0/1→2 ended)
+│                  #   ArticleViewFlushScheduler (Redis view-counter → DB flush)
 ├── admin/       # Admin REST API (port 8081) + Request DTOs + AdminAuthInterceptor
 ├── user/        # User  REST API (port 8082) + LoginCheckInterceptor
 ├── payment/     # Payment module (port 8083, reserved)
@@ -121,11 +133,13 @@ common ← core ← admin
 docker-compose up -d
 ```
 
-Starts MySQL 8 (3306), Redis 7 (6379), RabbitMQ 3 (5672, management UI on 15672), MinIO (9000 API / 9001 console), and Elasticsearch 8.13 (9200). `sql/schema.sql` is executed automatically on first run; the MinIO `image` bucket (configured via `minio.bucket` in `application-dev.yml`) is auto-created with a public-read policy the first time admin starts; the three ES indices (show / artist / article) are created idempotently on startup by `IndexInitializer` — no manual setup required.
+Starts MySQL 8 (3306), Redis 7 (6379), RabbitMQ 3 (5672, management UI on 15672), MinIO (9000 API / 9001 console), Elasticsearch 8.13 (9200), Prometheus (9090), and Grafana (3000). `sql/schema.sql` is executed automatically on first run; the MinIO `image` bucket (configured via `minio.bucket` in `application-dev.yml`) is auto-created with a public-read policy the first time admin starts; the three ES indices (show / artist / article) are created idempotently on startup by `IndexInitializer`; Grafana auto-provisions the Prometheus datasource and the "Ticket System Overview" dashboard on first run — no manual setup required.
 
 > **RabbitMQ Management UI**: http://localhost:15672 (guest / guest)
 > **MinIO Console**: http://localhost:9001 (minioadmin / minioadmin123)
 > **Elasticsearch**: http://localhost:9200 (no auth, single-node dev mode)
+> **Prometheus**: http://localhost:9090 (scrapes `/actuator/prometheus` from each Spring Boot app)
+> **Grafana**: http://localhost:3000 (admin / admin, preloaded "Ticket System Overview" dashboard)
 
 ### 2. Build
 
@@ -578,12 +592,34 @@ public Result<?> submit(...) { }
 
 ---
 
+## Capacity & Observability
+
+**Realistic capacity** (with current code + HikariCP tuned to 50):
+
+| Scenario | Achievable | Note |
+|----------|-----------|------|
+| Browsing / detail QPS | several thousand | Caffeine local cache + Redis, scales linearly with instances |
+| Sustained order QPS | ~2000/instance | bottleneck shifts to MySQL writes; ticket-grab path is async-decoupled |
+| Single-session burst (10k concurrent grab) | needs inventory sharding + read-replica | architecture supports it, see Roadmap |
+
+**Observability**:
+
+- All apps expose `/actuator/prometheus` (HTTP QPS / p95p99 latency / HikariCP pool / JVM / RabbitMQ rates)
+- `docker-compose up -d` boots Prometheus + Grafana with an auto-provisioned overview dashboard
+- Every response carries `X-Trace-Id` + `traceId` in the body for log correlation
+
+**Distributed scheduling**: All `@Scheduled` tasks are protected by `@SchedulerLock` (ShedLock + Redis). Safe to deploy multiple instances — only one runs the cron tick, the rest failover automatically.
+
+---
+
 ## Roadmap
 
 - **Real payment gateways** — implement `PaymentGateway` for Alipay / WeChat Pay
 - **Notification service** — integrate SMS / push, implement `notification.queue` consumer
 - **Microservices** — split admin / user / payment into independent services behind an API Gateway
-- **Sharding** — partition the order table by `session_id`
+- **Order Sharding** — partition the order table by `session_id` / month
+- **Inventory Sharding** — split the per-session seat Set into N shards to remove the Redis single-key hotspot
+- **Read/Write Splitting** — read replicas for show / order list endpoints
 - **CDN** — offload show poster and static assets; swap MinIO for Aliyun OSS / AWS S3 in production by changing `minio.endpoint` / `accessKey` only
 
 ---
