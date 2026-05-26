@@ -8,12 +8,14 @@
     <!-- 不带前缀，用于 INSERT 列名 / 单表 SELECT -->
     <sql id="Columns">
         id, name, description, category_id, city_code, address,
-        poster_url, venue, status, extend, create_time, update_time
+        poster_url, venue, status, review_mode, avg_rating, review_count, open_sale_time,
+        extend, create_time, update_time
     </sql>
     <!-- 带 s. 前缀，用于 JOIN 查询 -->
     <sql id="ColumnsAliased">
         s.id, s.name, s.description, s.category_id, s.city_code, s.address,
-        s.poster_url, s.venue, s.status, s.extend, s.create_time, s.update_time
+        s.poster_url, s.venue, s.status, s.review_mode, s.avg_rating, s.review_count, s.open_sale_time,
+        s.extend, s.create_time, s.update_time
     </sql>
 
     <!-- 演出实体映射（管理端写入与基础查询使用） -->
@@ -27,6 +29,10 @@
         <result column="poster_url"  property="posterUrl"/>
         <result column="venue"       property="venue"/>
         <result column="status"      property="status"/>
+        <result column="review_mode"   property="reviewMode"/>
+        <result column="avg_rating"    property="avgRating"/>
+        <result column="review_count"  property="reviewCount"/>
+        <result column="open_sale_time" property="openSaleTime"/>
         <result column="extend"      property="extend" typeHandler="com.ticket.core.mybatis.JsonMapTypeHandler"/>
         <result column="create_time" property="createTime"/>
         <result column="update_time" property="updateTime"/>
@@ -45,6 +51,10 @@
         <result column="poster_url"    property="posterUrl"/>
         <result column="venue"         property="venue"/>
         <result column="status"        property="status"/>
+        <result column="review_mode"    property="reviewMode"/>
+        <result column="avg_rating"     property="avgRating"/>
+        <result column="review_count"   property="reviewCount"/>
+        <result column="open_sale_time" property="openSaleTime"/>
         <result column="extend"        property="extend" typeHandler="com.ticket.core.mybatis.JsonMapTypeHandler"/>
         <result column="create_time"   property="createTime"/>
         <result column="update_time"   property="updateTime"/>
@@ -52,9 +62,11 @@
 
     <insert id="insert" parameterType="com.ticket.core.domain.entity.Show" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO `show` (name, description, category_id, city_code, address,
-                            poster_url, venue, status, extend, create_time, update_time)
+                            poster_url, venue, status, review_mode, avg_rating, review_count, open_sale_time,
+                            extend, create_time, update_time)
         VALUES (#{name}, #{description}, #{categoryId}, #{cityCode}, #{address},
-                #{posterUrl}, #{venue}, #{status}, #{extend,typeHandler=com.ticket.core.mybatis.JsonMapTypeHandler}, #{createTime}, #{updateTime})
+                #{posterUrl}, #{venue}, #{status}, #{reviewMode}, #{avgRating}, #{reviewCount}, #{openSaleTime},
+                #{extend,typeHandler=com.ticket.core.mybatis.JsonMapTypeHandler}, #{createTime}, #{updateTime})
     </insert>
 
     <update id="update" parameterType="com.ticket.core.domain.entity.Show">
@@ -67,6 +79,8 @@
             poster_url  = #{posterUrl},
             venue       = #{venue},
             status      = #{status},
+            review_mode    = #{reviewMode},
+            open_sale_time = #{openSaleTime},
             extend      = #{extend,typeHandler=com.ticket.core.mybatis.JsonMapTypeHandler},
             update_time = #{updateTime}
         WHERE id = #{id}

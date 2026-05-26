@@ -26,6 +26,11 @@
 | `DB_USER` | MySQL 用户名 | `root` |
 | `REDIS_HOST` | Redis 主机 | `localhost` |
 | `REDIS_PORT` | Redis 端口 | `6379` |
+| `ELASTICSEARCH_HOST` | Elasticsearch 节点（多节点逗号分隔，如 `es-1:9200,es-2:9200`） | `localhost:9200` |
+| `ELASTICSEARCH_CONNECT_TIMEOUT_MS` | 连接超时（毫秒） | `3000` |
+| `ELASTICSEARCH_SOCKET_TIMEOUT_MS` | 读超时（毫秒） | `10000` |
+
+> **Elasticsearch 说明**：演出 / 艺人 / 资讯三类索引由各服务启动时的 `IndexInitializer` 幂等创建（已存在则跳过）；ES 不可用时业务降级，不会阻塞应用启动，但搜索功能与异步索引会失败。生产环境建议：(1) 至少 3 节点集群 + 副本数 ≥ 1；(2) 开启 X-Pack security 并通过环境变量注入用户名密码（当前代码用匿名访问，启用 security 后需扩展 `ElasticsearchClientConfig`）；(3) 与 MySQL 同机房部署降低 MQ 同步延迟。
 
 > **MinIO / 对象存储说明**：admin 模块的图片上传走 S3 兼容协议，本地开发使用 `docker-compose.yml` 内置的 MinIO 容器（9000 API / 9001 控制台，默认 `minioadmin / minioadmin123`）。生产环境可继续使用自建 MinIO，也可直接切到阿里云 OSS / AWS S3 —— 只需替换上面 5 个环境变量，业务代码不动。bucket 不存在时 admin 首次启动会自动创建并设置公共读策略，**生产环境如不希望对外公开访问，应改用签名 URL 并移除公共读策略**。
 
@@ -83,7 +88,19 @@ services:
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
       MINIO_BUCKET: ${MINIO_BUCKET}              # 如 ticket-prod
       MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT}  # CDN / 反向代理域名
+      ELASTICSEARCH_HOST: ${ELASTICSEARCH_HOST}        # 如 es-1:9200,es-2:9200,es-3:9200
       SPRING_PROFILES_ACTIVE: prod
+
+  user:
+    image: ticket/user:latest
+    environment:
+      # 与 admin 共享 JWT_SECRET / DB / Redis / Snowflake
+      ELASTICSEARCH_HOST: ${ELASTICSEARCH_HOST}        # 用户端 /api/search/* 依赖
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}                # 用户端评价晒图上传
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET: ${MINIO_BUCKET}
+      MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT}
 ```
 
 ### Kubernetes
@@ -171,4 +188,6 @@ curl -H "Authorization: Bearer $ADMIN_TOKEN" \
 - [ ] MinIO 不使用默认凭据（`minioadmin / minioadmin123`），且生产环境如不需要公开访问，已改为签名 URL 模式
 - [ ] 反向代理后部署时已配置 `rate-limit.trusted-proxies`
 - [ ] dev 配置文件（`application-dev.yml`）未被打包到生产镜像（或 `SPRING_PROFILES_ACTIVE=prod` 已设置）
-- [ ] RabbitMQ 管理端口（15672）、MinIO 控制台端口（9001）未对公网暴露
+- [ ] RabbitMQ 管理端口（15672）、MinIO 控制台端口（9001）、Elasticsearch HTTP 端口（9200）未对公网暴露
+- [ ] Elasticsearch 已设置副本数 ≥ 1（dev 单节点的 yellow 状态不可用于生产），并开启 X-Pack security
+- [ ] `SubscribeNotifier` 开售提醒定时任务在多副本部署时，建议加分布式锁或只在单实例启用（当前 `@Scheduled` 每个 Pod 都会触发，重复推送由 `notified_pre`/`notified_open` 幂等标记拦截）

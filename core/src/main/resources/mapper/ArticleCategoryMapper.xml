@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.ticket.core.mapper.ArticleCategoryMapper">
+
+    <resultMap id="ArticleCategoryResultMap" type="com.ticket.core.domain.entity.ArticleCategory">
+        <id     column="id"          property="id"/>
+        <result column="name"        property="name"/>
+        <result column="sort"        property="sort"/>
+        <result column="status"      property="status"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+
+    <insert id="insert" parameterType="com.ticket.core.domain.entity.ArticleCategory"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO article_category (name, sort, status, create_time, update_time)
+        VALUES (#{name}, #{sort}, #{status}, #{createTime}, #{updateTime})
+    </insert>
+
+    <update id="update" parameterType="com.ticket.core.domain.entity.ArticleCategory">
+        UPDATE article_category
+        SET name        = #{name},
+            sort        = #{sort},
+            status      = #{status},
+            update_time = #{updateTime}
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteById">
+        DELETE FROM article_category WHERE id = #{id}
+    </delete>
+
+    <select id="selectById" resultMap="ArticleCategoryResultMap">
+        SELECT id, name, sort, status, create_time, update_time
+        FROM article_category WHERE id = #{id}
+    </select>
+
+    <select id="selectByName" resultMap="ArticleCategoryResultMap">
+        SELECT id, name, sort, status, create_time, update_time
+        FROM article_category WHERE name = #{name}
+    </select>
+
+    <select id="selectByCondition" resultMap="ArticleCategoryResultMap">
+        SELECT id, name, sort, status, create_time, update_time
+        FROM article_category
+        <where>
+            <if test="status != null">AND status = #{status}</if>
+        </where>
+        ORDER BY sort ASC, id ASC
+    </select>
+
+    <select id="selectEnabled" resultMap="ArticleCategoryResultMap">
+        SELECT id, name, sort, status, create_time, update_time
+        FROM article_category
+        WHERE status = 1
+        ORDER BY sort ASC, id ASC
+    </select>
+
+    <select id="countArticlesByCategoryId" resultType="int">
+        SELECT COUNT(*) FROM article WHERE category_id = #{id}
+    </select>
+
+</mapper>

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ticket.core.mapper.ShowReviewImageMapper">
+
+    <resultMap id="ImageMap" type="com.ticket.core.domain.entity.ShowReviewImage">
+        <id     column="id"          property="id"/>
+        <result column="review_id"   property="reviewId"/>
+        <result column="url"         property="url"/>
+        <result column="sort"        property="sort"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+
+    <insert id="batchInsert">
+        INSERT INTO show_review_image (review_id, url, sort, create_time, update_time) VALUES
+        <foreach collection="list" item="it" separator=",">
+            (#{it.reviewId}, #{it.url}, #{it.sort}, NOW(), NOW())
+        </foreach>
+    </insert>
+
+    <delete id="deleteByReviewId">DELETE FROM show_review_image WHERE review_id = #{reviewId}</delete>
+
+    <select id="selectByReviewId" resultMap="ImageMap">
+        SELECT id, review_id, url, sort, create_time, update_time
+        FROM show_review_image WHERE review_id = #{reviewId} ORDER BY sort ASC, id ASC
+    </select>
+
+    <select id="selectByReviewIds" resultMap="ImageMap">
+        SELECT id, review_id, url, sort, create_time, update_time
+        FROM show_review_image
+        WHERE review_id IN
+        <foreach collection="reviewIds" item="rid" open="(" close=")" separator=",">#{rid}</foreach>
+        ORDER BY review_id, sort ASC, id ASC
+    </select>
+
+</mapper>

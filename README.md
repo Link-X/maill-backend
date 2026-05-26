@@ -24,7 +24,15 @@ A high-concurrency ticket booking backend targeting thousands to tens of thousan
 - **Extend Fields** — `show` / `show_session` expose an `extend JSON` column so product can add display-only attributes without ALTER TABLE; conventions live in the frontend doc (not used in WHERE / indexes)
 - **Venue Templates** — Define seat layout and default prices once on a room; sessions created with a `roomId` auto-copy all seats and price areas instantly; `/room/template` endpoint returns room + seats + areas in a single call
 - **Image Upload** — Admin `/upload/image` endpoint backed by MinIO object storage (S3-compatible) for show posters, venue maps, etc.; returns an externally accessible URL
+- **Artists** — `artist` master + `show_artist` many-to-many association; users follow / unfollow (`user_follow_artist`); show detail joins and embeds artist list; articles can be filtered by artist
+- **Articles (News Center)** — `article_category` + `article` tables; three-state lifecycle (draft / published / offline); cover image, rich-text content, optional artist link; user-side list orders by category + published_at DESC
+- **Home Banner** — `banner` table with image + jump target (show / artist / article / external URL); scheduled show/hide (`start_at` / `end_at`) + sort order; user-side `/api/banner/list` returns active banners in one call
+- **Favorites with Groups** — `favorite_group` + `user_favorite`; user-defined groups (NULL = uncategorized); `(user_id, show_id)` unique, supports moving across groups
+- **Open-sale Reminders** — Shows expose `open_sale_time`; users subscribe via `show_subscribe`; `SubscribeNotifier` cron task scans every minute, pushes in-app messages N minutes before sale and at sale time; idempotent via `notified_pre` / `notified_open` flags
+- **In-app Messages** — Decoupled `message` + `user_message` (5 categories: order / open-sale / system / interaction / follow-activity); supports unicast & broadcast; user-side list / unread count / mark-read / batch delete
+- **Show Reviews** — One-level comments + nested replies (`parent_id` self-reference); 1-5 star rating on top-level only; image attachments, likes (deduped via `uk_review_user`), reports, admin moderation (hide / restore / delete); per-show `review_mode` (disabled / open / verified-attendees) + `avg_rating` / `review_count` denormalized counters
 - **Reporting** — Admin `/api/admin/report/*` exposes 11 aggregate endpoints (overview / time series / by show / category / city / status / hour / session fill-rate / user / refund / cancellation); rolling time windows (1d/7d/30d/90d) or custom; results cached in Redis for 5 minutes. The `order` table now tracks `refund_amount` cumulatively and a `cancel_reason` to distinguish user-cancelled vs. timeout-cancelled
+- **Full-text Search** — Elasticsearch 7.17 indexes three doc types (show / artist / article) asynchronously; write paths publish to `search.sync.queue`, `SearchSyncConsumer` upserts ES, `IndexInitializer` creates indices idempotently on startup; degrades gracefully when ES is unavailable
 - **Booking Core** — Lua atomic purchase-limit check + Redis batch seat lock (full rollback on any failure) + synchronous order creation
 - **Oversell Prevention** — Redis Set atomic `SREM` deduction + DB-level safety check
 - **Order Timeout** — RabbitMQ TTL + dead-letter queue, cancels order and releases inventory exactly 5 minutes after creation
@@ -48,6 +56,7 @@ A high-concurrency ticket booking backend targeting thousands to tens of thousan
 | Cache / Lock | Redis + Redisson | 7.x / 3.x |
 | Message Queue | RabbitMQ | 3.x |
 | Database | MySQL | 8.x |
+| Full-text Search | Elasticsearch (RestHighLevelClient) | 7.17.x |
 | Object Storage | MinIO (S3-compatible) | 8.5.x SDK |
 | Auth | Spring Security + JJWT | 0.12.x |
 | Build | Maven | — |
@@ -59,7 +68,9 @@ A high-concurrency ticket booking backend targeting thousands to tens of thousan
 ```
 maill-backend/
 ├── common/      # Utilities: response wrapper, exceptions, Snowflake ID, RedisKeys, @RateLimit AOP, blacklist, TraceIdFilter
-├── core/        # Core business: entities, Mappers, Services, MQ Producer/Consumer, MyBatis JsonMapTypeHandler
+│   └── es/      # Elasticsearch client config + index mappings + IndexInitializer (idempotent index creation on startup)
+├── core/        # Core business: entities, Mappers, Services, MQ Producer/Consumer, JsonMapTypeHandler
+│   └── scheduler/ # Cron tasks: SubscribeNotifier (per-minute open-sale reminder scan)
 ├── admin/       # Admin REST API (port 8081) + Request DTOs + AdminAuthInterceptor
 ├── user/        # User  REST API (port 8082) + LoginCheckInterceptor
 ├── payment/     # Payment module (port 8083, reserved)
@@ -72,13 +83,18 @@ maill-backend/
 
 | Service | Responsibility |
 |---------|---------------|
-| `ShowService` | Show CRUD |
+| `ShowService` | Show CRUD + artist relation upkeep + ES sync events |
 | `SessionService` | Session CRUD + publish + seat-map aggregate query |
 | `CategoryService` / `CityService` | Category / city (city is read-only) |
 | `RoomService` | Venue template + `copyToSession` (copies seats / price areas) |
 | `OrderCommandService` | Place / cancel / refund (transactional writes) |
 | `OrderQueryService` | Single / list queries + OrderStatusResponse assembly (batch prefetch, avoids N+1) |
 | `SeatInventoryService` / `PurchaseLimitService` | Redis inventory and purchase limits |
+| `ArtistService` / `ArticleService` / `ArticleCategoryService` / `BannerService` | Artist / article / article-category / banner (with ES sync) |
+| `FavoriteService` / `SubscribeService` | Favorites & groups; open-sale reminder subscriptions |
+| `MessageService` | In-app messaging: unicast / broadcast / read / delete |
+| `ReviewService` | Review publish / reply / like / report / rating aggregation (`avg_rating` / `review_count` maintained) |
+| `SearchService` | ES multi-index query + per-user search history |
 | `StorageService` | MinIO upload |
 
 Dependency chain:
@@ -105,10 +121,11 @@ common ← core ← admin
 docker-compose up -d
 ```
 
-Starts MySQL 8 (3306), Redis 7 (6379), RabbitMQ 3 (5672, management UI on 15672), and MinIO (9000 API / 9001 console). `sql/schema.sql` is executed automatically on first run; the MinIO `image` bucket (configured via `minio.bucket` in `application-dev.yml`) is auto-created with a public-read policy the first time admin starts — no manual setup required.
+Starts MySQL 8 (3306), Redis 7 (6379), RabbitMQ 3 (5672, management UI on 15672), MinIO (9000 API / 9001 console), and Elasticsearch 7.17 (9200). `sql/schema.sql` is executed automatically on first run; the MinIO `image` bucket (configured via `minio.bucket` in `application-dev.yml`) is auto-created with a public-read policy the first time admin starts; the three ES indices (show / artist / article) are created idempotently on startup by `IndexInitializer` — no manual setup required.
 
 > **RabbitMQ Management UI**: http://localhost:15672 (guest / guest)
 > **MinIO Console**: http://localhost:9001 (minioadmin / minioadmin123)
+> **Elasticsearch**: http://localhost:9200 (no auth, single-node dev mode)
 
 ### 2. Build
 
@@ -157,11 +174,20 @@ Creates 1 venue template (20 × 20 seats, VIP front section), 5 shows, 15 sessio
 |--------|------------|-------------------|
 | Auth | `/api/auth/*` | Register / login (returns JWT) |
 | Category / City (home tabs) | `/api/category` `/api/city` | Enabled lists sorted by `sort` |
-| Shows | `/api/show/*` | List (name/categoryId/cityCode/venue filters) / detail; returns ShowVO with categoryName / cityName / address / extend |
+| Banner | `/api/banner/list` | Home-page carousel (time-window + sort filtered) |
+| Shows | `/api/show/*` | List (name / categoryId / cityCode / venue filters) / detail; ShowVO carries categoryName / cityName / address / extend / artists / reviewMode / avgRating |
 | Sessions | `/api/session/*` | List / seat-map detail (includes show + city + address) |
+| Artists | `/api/artist/*` | List / detail / follow / unfollow / follow status / my follows |
+| Articles | `/api/article/*` `/api/article-category/list` | List (by category / by artist) / detail / category list |
+| Search | `/api/search/*` | Multi-index search (show / artist / article / all) + per-user history (add / clear) |
+| Favorites | `/api/favorite/*` | Add / remove / move-across-groups / check / list + group CRUD |
+| Subscribe | `/api/subscribe/*` | Open-sale reminder subscribe / unsubscribe / check / list |
+| Messages | `/api/message/*` | Inbox / unread count / mark read / mark all read / delete |
+| Reviews | `/api/review/*` | Publish top-level / reply / list / nested replies / like / report / my reviews / permission check |
 | Orders | `/api/order/*` | Lock & create / cancel / single-ticket refund / my orders / detail |
 | Payment | `/api/payment/*` | Pay an order |
 | Verification | `/api/verify/*` | QR / ticket-number check-in |
+| Upload | `/api/upload/*` | User-side image upload (review attachments) to MinIO |
 
 ### Admin Service (:8081)
 
@@ -172,9 +198,15 @@ Creates 1 venue template (20 × 20 seats, VIP front section), 5 shows, 15 sessio
 | Cities (read-only) | `/api/admin/city/list` | Dropdown source for the show form; seeded by schema.sql |
 | Venue templates | `/api/admin/room/*` | Room CRUD + seat template + default price areas + `/template` aggregate |
 | Image upload | `/api/admin/upload/image` | Multipart upload to MinIO, returns external URL |
-| Shows | `/api/admin/show/*` | Show CRUD (Request DTOs strictly validate; `status` not accepted from clients) |
+| Shows | `/api/admin/show/*` | Show CRUD with strict DTO validation; supports `reviewMode` / `openSaleTime` / `artistIds` / `artistRoles` to maintain show-artist relations in one call |
 | Sessions | `/api/admin/session/*` | Session CRUD + `/{id}/publish`; passing `roomId` auto-copies seats + prices |
 | Seats (manual) | `/api/admin/seat/*` | Batch seats / price areas / Redis warmup when not using a room template |
+| Artists | `/api/admin/artist/*` | Artist CRUD + status toggle |
+| Article categories | `/api/admin/article-category/*` | Article-category CRUD (in-use returns 1042; duplicate name 1041) |
+| Articles | `/api/admin/article/*` | Save (draft) / publish / take offline / list / delete |
+| Banner | `/api/admin/banner/*` | Banner CRUD + status toggle + sort |
+| Messages | `/api/admin/message/*` | Send unicast / broadcast / list (pushes to user inbox) |
+| Review moderation | `/api/admin/review/*` | Listing (incl. reported) / hide / restore / delete + report queue and handling |
 | Orders | `/api/admin/order/*` | Single / list (filter by showId / sessionId / orderNo / status / time range) |
 | Monitor | `/api/admin/monitor/dashboard` | Real-time seat counts (total / available / sold) |
 | **Reports** | `/api/admin/report/*` | 11 aggregate endpoints: overview / time series / by show, category, city / status & hour distributions / session fill-rate / users / refunds / cancellations (Redis 5-min cache) |
@@ -392,6 +424,12 @@ Payment Success (Fanout):
   payment.success.exchange ──→ ticket.generate.queue  ──→ generate tickets
                            ──→ inventory.sync.queue   ──→ sync seat.status = SOLD
                            ──→ notification.queue     ──→ notify (reserved)
+
+Refund (Direct):
+  refund.exchange ──→ refund.queue ──→ RefundConsumer (final order state from remaining unused tickets)
+
+Search Sync (Direct, fan-in after show / artist / article writes):
+  search.sync.exchange ──→ search.sync.queue ──→ SearchSyncConsumer (upsert / delete ES doc)
 ```
 
 ---
@@ -415,7 +453,9 @@ public Result<?> submit(...) { }
 
 ## Database Design
 
-15 tables in total:
+30 tables in total, grouped by business domain:
+
+**Core transactional (show / session / seat / order / payment)**
 
 | Table | Description |
 |-------|-------------|
@@ -423,7 +463,7 @@ public Result<?> submit(...) { }
 | `user_role` | Roles: USER / ADMIN |
 | `category` | Show categories (`name` unique; `sort`/`status` for ordering and enable/disable; `idx_status_sort` index) |
 | `city` | Cities (GB/T administrative codes, `code` unique); 30 major cities seeded, no write endpoint |
-| `show` | Shows; `category_id` / `city_code` link to category and city; `address` for the full street address; `extend` JSON for ad-hoc display fields; `idx_name` / `idx_venue` / `idx_category_id` / `idx_city_code` for search and filtering |
+| `show` | Shows; `category_id` / `city_code` link to category and city; `address` full street address; `extend` JSON; `review_mode` review-mode + `avg_rating` / `review_count` denormalized rating stats; `open_sale_time` for reminders; indexes `idx_name` / `idx_venue` / `idx_category_id` / `idx_city_code` / `idx_open_sale_time` |
 | `show_session` | Sessions; `room_id` links the venue template; `limit_per_user` cap; `extend` JSON for ad-hoc display fields |
 | `seat` | Seat master table; real-time inventory lives in Redis, `status` synced async after payment |
 | `seat_area` | Per-session seat price areas |
@@ -434,6 +474,31 @@ public Result<?> submit(...) { }
 | `room` | Venue template (name, dimensions) |
 | `room_seat` | Seat layout template for a room |
 | `room_area` | Default price areas for a room (copied to `seat_area` on session creation) |
+
+**Operational content (artists / articles / banner)**
+
+| Table | Description |
+|-------|-------------|
+| `artist` | Artist master (real / stage name, avatar, tags, `social_links` JSON, denormalized `follow_count` / `show_count`) |
+| `show_artist` | Show-artist many-to-many (`role` lead / director / guest, `sort`); `uk_show_artist` deduplicates |
+| `user_follow_artist` | User → artist follow (`uk_user_artist`) |
+| `article_category` | Article category (`name` unique) |
+| `article` | Article (draft / published / offline; optional `artist_id` link; composite index on `published_at` + status) |
+| `banner` | Home banner (image + jump type/target + `start_at` / `end_at` time-window + status + sort) |
+
+**User engagement (favorites / subscriptions / messages / reviews)**
+
+| Table | Description |
+|-------|-------------|
+| `favorite_group` | User-defined favorite groups (`uk_user_name`) |
+| `user_favorite` | Show favorites (`uk_user_show` — one favorite per show, movable across groups) |
+| `show_subscribe` | Open-sale reminder subscription (`notify_before_minutes` + `notified_pre` / `notified_open` idempotency flags) |
+| `message` | Message master (5 types: order / open-sale / system / interaction / follow-activity; `broadcast=1` for fan-out) |
+| `user_message` | User inbox (`uk_user_msg`; `idx_user_unread_time` accelerates unread feed) |
+| `show_review` | Show reviews (`parent_id` self-join: one-level comment + nested reply; rating top-level only; `like_count` / `reply_count` denormalized) |
+| `show_review_image` | Review image attachments (ordered by `sort`) |
+| `show_review_like` | Review likes (`uk_review_user` deduplicates) |
+| `show_review_report` | Review reports with admin handling state / handler / handle time |
 
 ---
 
@@ -497,13 +562,18 @@ public Result<?> submit(...) { }
                   │                         │
                   └────────────┬────────────┘
                                │
-            ┌──────────────────┼──────────────────┐
-            │                  │                  │
-   ┌────────▼────────┐ ┌───────▼──────┐ ┌────────▼────────┐
-   │    MySQL 8      │ │   Redis 7    │ │   RabbitMQ 3    │
-   │  (replication   │ │ (cache/lock) │ │ (events/timeout)│
-   │   optional)     │ │              │ │                 │
-   └─────────────────┘ └──────────────┘ └─────────────────┘
+            ┌──────────────┬───────┴───────┬──────────────┐
+            │              │               │              │
+   ┌────────▼─────┐ ┌──────▼──────┐ ┌──────▼──────┐ ┌─────▼──────┐
+   │   MySQL 8    │ │   Redis 7   │ │  RabbitMQ 3 │ │  ES 7.17   │
+   │ (replication │ │ (cache/lock)│ │ (events/TTL)│ │ (search)   │
+   │  optional)   │ │             │ │             │ │            │
+   └──────────────┘ └─────────────┘ └─────────────┘ └────────────┘
+                            │
+                    ┌───────▼───────┐
+                    │     MinIO     │
+                    │ (S3 storage)  │
+                    └───────────────┘
 ```
 
 ---

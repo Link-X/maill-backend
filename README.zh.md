@@ -24,7 +24,15 @@
 - **扩展字段**：`show` / `show_session` 提供 `extend JSON` 字段，产品新增展示型属性时无需 ALTER TABLE，约定写在前端文档（不参与 WHERE/索引）
 - **场地模板**：在 Room 上一次性定义座位布局和默认价格；创建场次时传入 `roomId`，座位和价格区域自动复制；提供 `/room/template` 聚合接口一次性返回 room + seats + areas
 - **图片上传**：管理端 `/upload/image` 直连 MinIO 对象存储（S3 兼容），支持演出海报、场地图等场景，返回外链 URL
+- **艺人系统**：`artist` 表 + `show_artist` 多对多关联；用户可关注/取关艺人（`user_follow_artist`），演出详情自动注入艺人列表（join `show_artist`），用户端按艺人筛选资讯
+- **资讯中心**：`article_category` + `article` 双表；草稿/已发布/已下架三态；支持封面图、富文本、关联艺人，用户端列表按分类+发布时间倒序
+- **首页 Banner**：`banner` 表支持图片+跳转目标（演出/艺人/资讯/外链）；定时上下架（`start_at`/`end_at`）+ 排序；用户端 `/api/banner/list` 一次取回有效轮播
+- **收藏分组**：`favorite_group` + `user_favorite`；用户可自定义分组（默认未分组），收藏唯一约束 `(user_id, show_id)`，支持跨分组移动
+- **开售提醒**：演出可设 `open_sale_time`，用户订阅（`show_subscribe`）后由 `SubscribeNotifier` 每分钟扫描定时任务，开售前 N 分钟与开售时刻分别推送站内信，幂等标记 `notified_pre`/`notified_open`
+- **站内消息**：`message` + `user_message` 两表分离；支持单发/广播（订单/开售/系统/互动/关注动态五类），用户端列表/未读数/标记已读/批量删除
+- **演出评价**：一级评论 + 二级回复（`parent_id` 自关联）；评分仅一级且 1-5 星；图片晒图、点赞（去重 `uk_review_user`）、举报、管理端审核（隐藏/恢复/删除）；演出可配置 `review_mode`（无评价/所有可评/仅已观看）+ `avg_rating`/`review_count` 冗余统计
 - **统计报表**：管理端 `/api/admin/report/*` 提供 11 个聚合接口（概览/趋势/按演出/分类/城市/状态/时段/场次售罄率/用户/退款/取消率）；时间窗口支持 1d/7d/30d/90d 滚动或自定义；结果 Redis 5 分钟缓存，无需关心 N+1。订单表 `refund_amount` 累计、`cancel_reason` 区分用户/超时取消
+- **全文搜索**：Elasticsearch 7.17 异步索引演出/艺人/资讯三类文档；业务写操作发布 `search.sync.queue` 事件，`SearchSyncConsumer` 落 ES，`IndexInitializer` 启动时幂等建索引；ES 不可用时降级，不阻塞业务
 - **抢票核心**：Lua 原子限购检查 + Redis 批量锁座（任一失败全量回滚）+ 同步建单
 - **防超卖**：Redis Set 原子扣库存，DB 层二次校验兜底
 - **订单超时**：RabbitMQ TTL + 死信队列，5 分钟精准触发取消并释放库存
@@ -48,6 +56,7 @@
 | 缓存 / 分布式锁 | Redis + Redisson | 7.x / 3.x |
 | 消息队列 | RabbitMQ | 3.x |
 | 数据库 | MySQL | 8.x |
+| 全文搜索 | Elasticsearch (RestHighLevelClient) | 7.17.x |
 | 对象存储 | MinIO (S3 兼容) | 8.5.x SDK |
 | 鉴权 | Spring Security + JJWT | 0.12.x |
 | 构建 | Maven | — |
@@ -58,8 +67,10 @@
 
 ```
 maill-backend/
-├── common/      # 通用工具：响应封装、异常、雪花ID、RedisKeys、@RateLimit 注解 + AOP、黑名单、TraceIdFilter
-├── core/        # 核心业务：实体、Mapper、Service、MQ Producer/Consumer、MyBatis JsonMapTypeHandler
+├── common/      # 通用工具：响应封装、异常、雪花ID、RedisKeys、@RateLimit AOP、黑名单、TraceIdFilter
+│   └── es/      # Elasticsearch 客户端配置 + 索引 mapping + IndexInitializer（启动幂等建索引）
+├── core/        # 核心业务：实体、Mapper、Service、MQ Producer/Consumer、JsonMapTypeHandler
+│   └── scheduler/ # 定时任务：SubscribeNotifier（开售提醒每分钟扫描）
 ├── admin/       # 管理端 REST API（端口 8081）+ Request DTO + AdminAuthInterceptor
 ├── user/        # 用户端 REST API（端口 8082）+ LoginCheckInterceptor
 ├── payment/     # 支付模块（端口 8083，预留）
@@ -72,13 +83,18 @@ maill-backend/
 
 | Service | 职责 |
 |---------|------|
-| `ShowService` | Show CRUD |
+| `ShowService` | Show CRUD + 关联艺人维护 + 发布 ES 同步事件 |
 | `SessionService` | Session CRUD + 发布开售 + 座位图聚合查询 |
 | `CategoryService` / `CityService` | 分类 / 城市（CityService 只读） |
 | `RoomService` | 场地模板 + copyToSession 复制座位/价格 |
 | `OrderCommandService` | 下单 / 取消 / 退款（事务边界） |
 | `OrderQueryService` | 单条 / 批量订单查询 + OrderStatusResponse 装配（含批量预取，避免 N+1） |
 | `SeatInventoryService` / `PurchaseLimitService` | Redis 库存与限购 |
+| `ArtistService` / `ArticleService` / `ArticleCategoryService` / `BannerService` | 艺人 / 资讯 / 资讯分类 / Banner（带 ES 同步） |
+| `FavoriteService` / `SubscribeService` | 收藏分组 + 订阅开售提醒 |
+| `MessageService` | 站内信单发 / 广播 / 已读 / 删除 |
+| `ReviewService` | 评价发布、回复、点赞、举报、评分聚合（DB 维护 `avg_rating` / `review_count`） |
+| `SearchService` | ES 多索引查询 + 搜索历史 |
 | `StorageService` | MinIO 上传 |
 
 依赖关系：
@@ -105,10 +121,11 @@ common ← core ← admin
 docker-compose up -d
 ```
 
-启动 MySQL 8（3306）、Redis 7（6379）、RabbitMQ 3（5672，管理界面 15672）、MinIO（9000 API / 9001 控制台）。`sql/schema.sql` 首次运行自动执行；MinIO 的 `image` bucket（在 `application-dev.yml` 的 `minio.bucket` 配置）由 admin 启动时自动创建并设为公共读，无需手动建。
+启动 MySQL 8（3306）、Redis 7（6379）、RabbitMQ 3（5672，管理界面 15672）、MinIO（9000 API / 9001 控制台）、Elasticsearch 7.17（9200）。`sql/schema.sql` 首次运行自动执行；MinIO 的 `image` bucket（在 `application-dev.yml` 的 `minio.bucket` 配置）由 admin 启动时自动创建并设为公共读，ES 三个索引（show / artist / article）由 `IndexInitializer` 启动时幂等创建，均无需手动建。
 
 > **RabbitMQ 管理界面**：http://localhost:15672（guest / guest）
 > **MinIO 管理控制台**：http://localhost:9001（minioadmin / minioadmin123）
+> **Elasticsearch**：http://localhost:9200（无鉴权，单节点 dev 模式）
 
 ### 2. 编译
 
@@ -157,11 +174,20 @@ bash docs/seed-data.sh
 |------|---------|---------|
 | 认证 | `/api/auth/*` | 注册 / 登录（返回 JWT） |
 | 分类 / 城市（首页 tabs） | `/api/category` `/api/city` | 启用列表，按 sort 排序 |
-| 演出 | `/api/show/*` | 列表（name/categoryId/cityCode/venue 筛选）/ 详情，返回 ShowVO（含 categoryName / cityName / address / extend） |
+| Banner | `/api/banner/list` | 首页轮播位（按时间窗口+排序过滤） |
+| 演出 | `/api/show/*` | 列表（name/categoryId/cityCode/venue 筛选）/ 详情，返回 ShowVO（含 categoryName / cityName / address / extend / artists / reviewMode / avgRating） |
 | 场次 | `/api/session/*` | 列表 / 座位图详情（含演出与城市地址） |
+| 艺人 | `/api/artist/*` | 列表 / 详情 / 关注 / 取关 / 关注状态 / 我的关注 |
+| 资讯 | `/api/article/*` `/api/article-category/list` | 列表（按分类/按艺人） / 详情 / 分类列表 |
+| 搜索 | `/api/search/*` | 多索引检索（演出/艺人/资讯/all）+ 历史记录（增删） |
+| 收藏 | `/api/favorite/*` | 收藏增删 / 跨分组移动 / 检查 / 列表 + 分组 CRUD |
+| 订阅 | `/api/subscribe/*` | 演出开售提醒订阅 / 取消 / 检查 / 列表 |
+| 消息 | `/api/message/*` | 站内信列表 / 未读数 / 标记已读 / 全部已读 / 删除 |
+| 评价 | `/api/review/*` | 一级评论发布 / 二级回复 / 列表 / 楼中楼 / 点赞 / 举报 / 我的 / 权限检查 |
 | 订单 | `/api/order/*` | 锁座建单 / 取消 / 单票退款 / 我的订单 / 订单详情 |
 | 支付 | `/api/payment/*` | 支付订单 |
 | 入场核验 | `/api/verify/*` | 二维码 / 票号核销 |
+| 文件上传 | `/api/upload/*` | 用户端晒图上传到 MinIO |
 
 ### 管理端（:8081）
 
@@ -172,9 +198,15 @@ bash docs/seed-data.sh
 | 城市（只读） | `/api/admin/city/list` | 演出表单下拉源；数据由 schema.sql seed |
 | 场地模板 | `/api/admin/room/*` | 场地 CRUD + 座位模板 + 默认价格区域 + `/template` 聚合 |
 | 文件上传 | `/api/admin/upload/image` | multipart 上传到 MinIO，返回外链 URL |
-| 演出 | `/api/admin/show/*` | Show CRUD（Request DTO 严格校验，status 不接受前端传） |
+| 演出 | `/api/admin/show/*` | Show CRUD；DTO 严格校验，支持 `reviewMode` / `openSaleTime` / `artistIds` / `artistRoles` 一次性维护演出与艺人关系 |
 | 场次 | `/api/admin/session/*` | Session CRUD + `/{id}/publish` 开售；传 roomId 自动复制座位 + 价格 |
 | 座位（手动模式） | `/api/admin/seat/*` | 不走场地模板时的座位批量 / 价格区域 / Redis 预热 |
+| 艺人 | `/api/admin/artist/*` | 艺人 CRUD + 上下架 |
+| 资讯分类 | `/api/admin/article-category/*` | 资讯分类 CRUD（被引用返回 1042，重名返回 1041） |
+| 资讯 | `/api/admin/article/*` | 草稿 / 发布 / 下架 / 列表 / 删除 |
+| Banner | `/api/admin/banner/*` | Banner CRUD + 上下架 + 排序 |
+| 消息 | `/api/admin/message/*` | 单发 / 广播 / 列表（推送站内信） |
+| 评价审核 | `/api/admin/review/*` | 列表（含被举报态） / 隐藏 / 恢复 / 删除 + 举报清单与处理 |
 | 订单管理 | `/api/admin/order/*` | 单查 / 列表（showId / sessionId / orderNo / status / 时间筛选） |
 | 监控 | `/api/admin/monitor/dashboard` | 场次座位实时统计（总数 / 可售 / 已售） |
 | **统计报表** | `/api/admin/report/*` | 11 个接口：概览 / 时间趋势 / 演出/分类/城市排行 / 状态&时段分布 / 场次售罄率 / 用户 / 退款 / 取消率（Redis 5min 缓存） |
@@ -392,6 +424,12 @@ POST /api/payment/create  超时消息经死信路由
   payment.success.exchange ──→ ticket.generate.queue  ──→ 生成票券
                            ──→ inventory.sync.queue   ──→ 同步 seat.status = 已售
                            ──→ notification.queue     ──→ 通知（预留）
+
+退款（Direct）：
+  refund.exchange ──→ refund.queue ──→ RefundConsumer（按未退票数计算订单终态）
+
+搜索同步（Direct，演出/艺人/资讯写操作后异步落 ES）：
+  search.sync.exchange ──→ search.sync.queue ──→ SearchSyncConsumer（upsert/delete ES 文档）
 ```
 
 ---
@@ -415,7 +453,9 @@ public Result<?> submit(...) { }
 
 ## 数据库设计
 
-共 15 张表：
+共 30 张表，按业务域分组：
+
+**核心交易（演出 / 场次 / 座位 / 订单 / 支付）**
 
 | 表名 | 说明 |
 |------|------|
@@ -423,7 +463,7 @@ public Result<?> submit(...) { }
 | `user_role` | 用户角色（USER / ADMIN） |
 | `category` | 演出分类（name 唯一；sort/status 排序与启用控制；含 idx_status_sort 索引） |
 | `city` | 城市（GB/T 行政区划代码，code 唯一）；seed 30 个主要城市，不开放写入 |
-| `show` | 演出；`category_id` / `city_code` 关联分类与城市；`address` 详细地址；`extend` JSON 扩展字段；含 `idx_name` / `idx_venue` / `idx_category_id` / `idx_city_code` 搜索/筛选索引 |
+| `show` | 演出；`category_id` / `city_code` 关联分类与城市；`address` 详细地址；`extend` JSON；`review_mode` 评价模式 + `avg_rating` / `review_count` 评分冗余；`open_sale_time` 开售时间；含 `idx_name` / `idx_venue` / `idx_category_id` / `idx_city_code` / `idx_open_sale_time` 索引 |
 | `show_session` | 场次；`room_id` 关联场地模板；含限购数 `limit_per_user`；`extend` JSON 扩展字段 |
 | `seat` | 座位底表，实时库存由 Redis 管理，支付后异步同步 status |
 | `seat_area` | 场次座位价格区域 |
@@ -434,6 +474,31 @@ public Result<?> submit(...) { }
 | `room` | 场地模板（名称、行列数等） |
 | `room_seat` | 场地座位布局模板 |
 | `room_area` | 场地默认价格区域（创建场次时复制到 `seat_area`） |
+
+**运营内容（艺人 / 资讯 / Banner）**
+
+| 表名 | 说明 |
+|------|------|
+| `artist` | 艺人主表（本名 / 艺名 / 头像 / 标签 / `social_links` JSON / `follow_count` / `show_count` 冗余） |
+| `show_artist` | 演出-艺人多对多关联（`role` 主演/导演/特邀、`sort`），`uk_show_artist` 防重 |
+| `user_follow_artist` | 用户关注艺人（`uk_user_artist` 去重） |
+| `article_category` | 资讯分类（name 唯一） |
+| `article` | 资讯（草稿/发布/下架三态；可选 `artist_id` 关联艺人；`published_at` 与状态联合索引） |
+| `banner` | 首页 Banner（图片+跳转类型+目标 + `start_at`/`end_at` 定时窗口 + 状态/排序） |
+
+**用户互动（收藏 / 订阅 / 消息 / 评价）**
+
+| 表名 | 说明 |
+|------|------|
+| `favorite_group` | 用户自定义收藏分组（`uk_user_name` 同用户名不重） |
+| `user_favorite` | 用户收藏演出（`uk_user_show` 一演出仅收藏一次，可跨分组移动） |
+| `show_subscribe` | 演出开售提醒订阅（`notify_before_minutes` 提前 N 分钟 + `notified_pre`/`notified_open` 幂等标记） |
+| `message` | 站内信主表（5 类：订单/开售/系统/互动/关注动态；`broadcast=1` 表示广播） |
+| `user_message` | 用户-消息收件箱（`uk_user_msg`；`idx_user_unread_time` 加速未读列表） |
+| `show_review` | 演出评价（`parent_id` 自关联实现一级评论+二级回复；评分仅一级；`like_count` / `reply_count` 冗余） |
+| `show_review_image` | 评价晒图（多图按 `sort` 排序） |
+| `show_review_like` | 评价点赞（`uk_review_user` 去重） |
+| `show_review_report` | 评价举报（含 admin 处理状态/处理人/处理时间） |
 
 ---
 
@@ -497,12 +562,17 @@ public Result<?> submit(...) { }
                   │                         │
                   └────────────┬────────────┘
                                │
-            ┌──────────────────┼──────────────────┐
-            │                  │                  │
-   ┌────────▼────────┐ ┌───────▼──────┐ ┌────────▼────────┐
-   │    MySQL 8      │ │   Redis 7    │ │   RabbitMQ 3    │
-   │   (主从可选)     │ │  (缓存/锁)   │ │  (事件 / 超时)  │
-   └─────────────────┘ └──────────────┘ └─────────────────┘
+            ┌──────────────┬───────┴───────┬──────────────┐
+            │              │               │              │
+   ┌────────▼─────┐ ┌──────▼──────┐ ┌──────▼──────┐ ┌─────▼──────┐
+   │   MySQL 8    │ │   Redis 7   │ │  RabbitMQ 3 │ │  ES 7.17   │
+   │  (主从可选)   │ │  (缓存/锁)  │ │ (事件/超时) │ │ (全文搜索) │
+   └──────────────┘ └─────────────┘ └─────────────┘ └────────────┘
+                            │
+                    ┌───────▼───────┐
+                    │     MinIO     │
+                    │ (S3 兼容存储) │
+                    └───────────────┘
 ```
 
 ---

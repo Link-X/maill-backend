@@ -36,4 +36,17 @@ public class ShowCreateRequest {
     @Schema(description = "扩展 JSON 对象（duration/ageLimit/refundRule 等），后端原样存库，不参与 WHERE/索引",
             example = "{\"duration\":180,\"ageLimit\":\"6+\",\"refundRule\":\"开演前24小时可退\"}")
     private Map<String, Object> extend;
+
+    @Schema(description = "评价模式 0=无评价 1=所有可评 2=仅已观看;默认 1",
+            example = "1", allowableValues = {"0","1","2"})
+    @javax.validation.constraints.Min(0)
+    @javax.validation.constraints.Max(2)
+    private Integer reviewMode;
+
+    @Schema(description = "开售时间(null=立即可购)") private java.time.LocalDateTime openSaleTime;
+
+    @Schema(description = "关联艺人 ID 列表(可空)") private java.util.List<Long> artistIds;
+
+    @Schema(description = "艺人角色映射 {artistId: '主演'}", example = "{\"1\":\"主演\"}")
+    private java.util.Map<Long, String> artistRoles;
 }

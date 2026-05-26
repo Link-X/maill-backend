@@ -64,24 +64,29 @@ CREATE TABLE IF NOT EXISTS city (
 --   idx_name / idx_venue   : 前缀模糊搜索走 B-Tree (LIKE 'xxx%')
 --   idx_category_id        : 按分类筛选（前端分类 tabs）
 CREATE TABLE IF NOT EXISTS `show` (
-    id          BIGINT       NOT NULL AUTO_INCREMENT,
-    name        VARCHAR(128) NOT NULL COMMENT '演出名称',
-    description TEXT                  COMMENT '演出描述',
-    category_id BIGINT                DEFAULT NULL COMMENT '关联 category.id',
-    city_code   VARCHAR(10)           DEFAULT NULL COMMENT '关联 city.code (GB/T 行政区划代码)',
-    address     VARCHAR(255)          DEFAULT NULL COMMENT '详细地址',
-    poster_url  VARCHAR(512)          DEFAULT NULL COMMENT '海报URL',
-    venue       VARCHAR(256)          DEFAULT NULL COMMENT '演出场馆名',
-    status      INT          NOT NULL DEFAULT 0 COMMENT '状态: 0=草稿, 1=已上架, 2=已下架',
-    extend      JSON                  DEFAULT NULL COMMENT '扩展字段（如预售/退改规则/时长/适宜年龄），约定见前端文档；不参与 WHERE/索引',
-    create_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    update_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    id             BIGINT        NOT NULL AUTO_INCREMENT,
+    name           VARCHAR(128)  NOT NULL COMMENT '演出名称',
+    description    TEXT                   COMMENT '演出描述',
+    category_id    BIGINT                 DEFAULT NULL COMMENT '关联 category.id',
+    city_code      VARCHAR(10)            DEFAULT NULL COMMENT '关联 city.code (GB/T 行政区划代码)',
+    address        VARCHAR(255)           DEFAULT NULL COMMENT '详细地址',
+    poster_url     VARCHAR(512)           DEFAULT NULL COMMENT '海报URL',
+    venue          VARCHAR(256)           DEFAULT NULL COMMENT '演出场馆名',
+    status         INT           NOT NULL DEFAULT 0 COMMENT '状态: 0=草稿, 1=已上架, 2=已下架',
+    review_mode    TINYINT       NOT NULL DEFAULT 1 COMMENT '评价模式 0=无评价 1=所有可评 2=仅已观看',
+    avg_rating     DECIMAL(3, 2) NOT NULL DEFAULT 0 COMMENT '平均评分,冗余统计',
+    review_count   INT           NOT NULL DEFAULT 0 COMMENT '评价数,冗余统计',
+    open_sale_time DATETIME               DEFAULT NULL COMMENT '开售时间,用于开售提醒触发',
+    extend         JSON                   DEFAULT NULL COMMENT '扩展字段（如预售/退改规则/时长/适宜年龄），约定见前端文档；不参与 WHERE/索引',
+    create_time    DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time    DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     KEY idx_status_create_time (status, create_time) COMMENT '用于演出列表按状态分页查询，避免 filesort',
-    KEY idx_name        (name)        COMMENT '搜索: name LIKE xxx%',
-    KEY idx_venue       (venue)       COMMENT '搜索: venue LIKE xxx%',
-    KEY idx_category_id (category_id) COMMENT '按分类筛选',
-    KEY idx_city_code   (city_code)   COMMENT '按城市筛选'
+    KEY idx_name           (name)           COMMENT '搜索: name LIKE xxx%',
+    KEY idx_venue          (venue)          COMMENT '搜索: venue LIKE xxx%',
+    KEY idx_category_id    (category_id)    COMMENT '按分类筛选',
+    KEY idx_city_code      (city_code)      COMMENT '按城市筛选',
+    KEY idx_open_sale_time (open_sale_time) COMMENT '开售提醒定时扫描'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='演出表';
 
 -- 4. 演出场次表
@@ -285,7 +290,262 @@ INSERT INTO city (code, name, sort, status) VALUES
     ('520100', '贵阳',     30, 1);
 
 -- ============================================================
--- 存量数据库迁移（仅首次升级时执行，新建库忽略）
+-- 用户端功能扩展表（艺人 / 资讯 / 收藏 / 订阅 / 消息 / 评价 / Banner）
+-- 关联设计文档：docs/superpowers/specs/2026-05-25-user-features-expansion-design.md
 -- ============================================================
--- ALTER TABLE show_session ADD COLUMN room_id BIGINT DEFAULT NULL
---     COMMENT '关联场地ID，不为空时座位由场地模板复制' AFTER show_id;
+
+-- ------------------------------------------------------------
+-- 收藏分组表
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS favorite_group (
+    id          BIGINT      NOT NULL AUTO_INCREMENT,
+    user_id     BIGINT      NOT NULL COMMENT '用户ID',
+    name        VARCHAR(50) NOT NULL COMMENT '分组名',
+    sort        INT         NOT NULL DEFAULT 0 COMMENT '排序,小靠前',
+    create_time DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_user_name (user_id, name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户收藏分组';
+
+-- ------------------------------------------------------------
+-- 用户收藏演出表
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS user_favorite (
+    id          BIGINT     NOT NULL AUTO_INCREMENT,
+    user_id     BIGINT     NOT NULL COMMENT '用户ID',
+    show_id     BIGINT     NOT NULL COMMENT '演出ID',
+    group_id    BIGINT     NULL     COMMENT '分组ID,NULL=未分组',
+    create_time DATETIME   NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME   NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_user_show (user_id, show_id),
+    KEY idx_user_group (user_id, group_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户收藏演出';
+
+-- ------------------------------------------------------------
+-- 开售提醒订阅表
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS show_subscribe (
+    id                    BIGINT   NOT NULL AUTO_INCREMENT,
+    user_id               BIGINT   NOT NULL COMMENT '用户ID',
+    show_id               BIGINT   NOT NULL COMMENT '演出ID',
+    notify_before_minutes INT      NOT NULL DEFAULT 10 COMMENT '提前提醒分钟数',
+    notified_pre          TINYINT  NOT NULL DEFAULT 0 COMMENT '已推送提前提醒:0=否 1=是',
+    notified_open         TINYINT  NOT NULL DEFAULT 0 COMMENT '已推送开售:0=否 1=是',
+    create_time           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_user_show (user_id, show_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='演出开售提醒订阅';
+
+-- ------------------------------------------------------------
+-- 消息主表
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS message (
+    id          BIGINT       NOT NULL AUTO_INCREMENT,
+    type        TINYINT      NOT NULL COMMENT '1=订单 2=开售提醒 3=系统通知 4=互动 5=关注动态',
+    title       VARCHAR(200) NOT NULL,
+    content     TEXT         NOT NULL,
+    link_type   TINYINT      NOT NULL DEFAULT 0 COMMENT '0=无 1=演出 2=艺人 3=资讯 4=订单 5=URL',
+    link_target VARCHAR(500) NULL COMMENT 'target_id 或 URL',
+    broadcast   TINYINT      NOT NULL DEFAULT 0 COMMENT '0=单发 1=广播',
+    create_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_type_time (type, create_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='消息主表';
+
+-- ------------------------------------------------------------
+-- 用户-消息关系表
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS user_message (
+    id          BIGINT   NOT NULL AUTO_INCREMENT,
+    user_id     BIGINT   NOT NULL COMMENT '用户ID',
+    message_id  BIGINT   NOT NULL COMMENT '消息ID',
+    is_read     TINYINT  NOT NULL DEFAULT 0 COMMENT '0=未读 1=已读',
+    read_at     DATETIME NULL,
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_user_msg (user_id, message_id),
+    KEY idx_user_unread_time (user_id, is_read, create_time DESC)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户-消息关系';
+
+-- ------------------------------------------------------------
+-- 演出评价主表（一级评论 + 二级回复）
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS show_review (
+    id                BIGINT   NOT NULL AUTO_INCREMENT,
+    show_id           BIGINT   NOT NULL COMMENT '演出ID',
+    user_id           BIGINT   NOT NULL COMMENT '发布用户ID',
+    order_id          BIGINT   NULL     COMMENT '订单ID,"已观看"模式必填',
+    parent_id         BIGINT   NULL     COMMENT 'NULL=一级评论;否则=所属一级评论ID',
+    reply_to_user_id  BIGINT   NULL     COMMENT '二级回复时@的目标用户ID',
+    content           TEXT     NOT NULL,
+    rating            TINYINT  NULL     COMMENT '1-5星,仅一级评论',
+    like_count        INT      NOT NULL DEFAULT 0,
+    reply_count       INT      NOT NULL DEFAULT 0 COMMENT '仅一级评论维护',
+    status            TINYINT  NOT NULL DEFAULT 0 COMMENT '0=正常 1=举报中 2=被隐藏',
+    create_time       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_show_parent_time (show_id, parent_id, create_time DESC),
+    KEY idx_show_parent_hot (show_id, parent_id, like_count DESC),
+    KEY idx_parent_time (parent_id, create_time),
+    KEY idx_user (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='演出评价';
+
+-- ------------------------------------------------------------
+-- 评价图片表
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS show_review_image (
+    id          BIGINT       NOT NULL AUTO_INCREMENT,
+    review_id   BIGINT       NOT NULL,
+    url         VARCHAR(500) NOT NULL,
+    sort        INT          NOT NULL DEFAULT 0,
+    create_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_review_sort (review_id, sort)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='评价图片';
+
+-- ------------------------------------------------------------
+-- 评价点赞表
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS show_review_like (
+    id          BIGINT   NOT NULL AUTO_INCREMENT,
+    review_id   BIGINT   NOT NULL,
+    user_id     BIGINT   NOT NULL,
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_review_user (review_id, user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='评价点赞';
+
+-- ------------------------------------------------------------
+-- 评价举报表
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS show_review_report (
+    id          BIGINT       NOT NULL AUTO_INCREMENT,
+    review_id   BIGINT       NOT NULL,
+    reporter_id BIGINT       NOT NULL COMMENT '举报人',
+    reason      VARCHAR(200) NOT NULL,
+    status      TINYINT      NOT NULL DEFAULT 0 COMMENT '0=待处理 1=已处理-保留 2=已处理-删除',
+    handler_id  BIGINT       NULL     COMMENT 'admin 处理人',
+    handled_at  DATETIME     NULL,
+    create_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_status_time (status, create_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='评价举报';
+
+-- ------------------------------------------------------------
+-- 艺人表
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS artist (
+    id            BIGINT       NOT NULL AUTO_INCREMENT,
+    name          VARCHAR(100) NOT NULL COMMENT '本名',
+    stage_name    VARCHAR(100) NULL     COMMENT '艺名',
+    avatar_url    VARCHAR(500) NULL,
+    gender        TINYINT      NOT NULL DEFAULT 0 COMMENT '0=保密 1=男 2=女',
+    nationality   VARCHAR(50)  NULL     COMMENT '国籍/地区',
+    tags          VARCHAR(500) NULL     COMMENT '逗号分隔,如"歌手,演员"',
+    bio           VARCHAR(500) NULL     COMMENT '简介短文本',
+    description   LONGTEXT     NULL     COMMENT '富文本详介',
+    social_links  JSON         NULL     COMMENT '{"weibo":"","instagram":"","x":""}',
+    follow_count  INT          NOT NULL DEFAULT 0,
+    show_count    INT          NOT NULL DEFAULT 0,
+    status        TINYINT      NOT NULL DEFAULT 1 COMMENT '0=下架 1=上架',
+    create_time   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_name (name),
+    KEY idx_stage_name (stage_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='艺人';
+
+-- ------------------------------------------------------------
+-- 演出-艺人关联表（多对多）
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS show_artist (
+    id          BIGINT      NOT NULL AUTO_INCREMENT,
+    show_id     BIGINT      NOT NULL,
+    artist_id   BIGINT      NOT NULL,
+    role        VARCHAR(50) NULL COMMENT '角色,主演/导演/特邀等',
+    sort        INT         NOT NULL DEFAULT 0,
+    create_time DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_show_artist (show_id, artist_id),
+    KEY idx_artist (artist_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='演出-艺人关联';
+
+-- ------------------------------------------------------------
+-- 用户关注艺人表
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS user_follow_artist (
+    id          BIGINT   NOT NULL AUTO_INCREMENT,
+    user_id     BIGINT   NOT NULL,
+    artist_id   BIGINT   NOT NULL,
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_user_artist (user_id, artist_id),
+    KEY idx_artist (artist_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户关注艺人';
+
+-- ------------------------------------------------------------
+-- 资讯分类表
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS article_category (
+    id          BIGINT      NOT NULL AUTO_INCREMENT,
+    name        VARCHAR(50) NOT NULL,
+    sort        INT         NOT NULL DEFAULT 0,
+    status      TINYINT     NOT NULL DEFAULT 1 COMMENT '0=下架 1=上架',
+    create_time DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_name (name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='资讯分类';
+
+-- ------------------------------------------------------------
+-- 资讯表
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS article (
+    id           BIGINT       NOT NULL AUTO_INCREMENT,
+    category_id  BIGINT       NOT NULL,
+    title        VARCHAR(200) NOT NULL,
+    summary      VARCHAR(500) NULL COMMENT '摘要,列表展示用',
+    content      LONGTEXT     NOT NULL COMMENT '富文本',
+    cover_url    VARCHAR(500) NULL,
+    artist_id    BIGINT       NULL COMMENT '可关联艺人',
+    author       VARCHAR(50)  NULL,
+    view_count   INT          NOT NULL DEFAULT 0,
+    status       TINYINT      NOT NULL DEFAULT 0 COMMENT '0=草稿 1=已发布 2=已下架',
+    published_at DATETIME     NULL,
+    create_time  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_category_status_time (category_id, status, published_at DESC),
+    KEY idx_artist (artist_id),
+    KEY idx_status_time (status, published_at DESC)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='资讯';
+
+-- ------------------------------------------------------------
+-- Banner / 运营位表
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS banner (
+    id          BIGINT       NOT NULL AUTO_INCREMENT,
+    title       VARCHAR(100) NULL COMMENT '后台备注,前端可不展示',
+    image_url   VARCHAR(500) NOT NULL,
+    link_type   TINYINT      NOT NULL DEFAULT 0 COMMENT '0=无 1=演出 2=艺人 3=资讯 4=外链',
+    link_target VARCHAR(500) NULL,
+    sort        INT          NOT NULL DEFAULT 0,
+    start_at    DATETIME     NULL COMMENT '定时上架,NULL=立即生效',
+    end_at      DATETIME     NULL COMMENT '定时下架,NULL=永久',
+    status      TINYINT      NOT NULL DEFAULT 0 COMMENT '0=下架 1=上架',
+    create_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_status_sort (status, sort)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='首页Banner/运营位';

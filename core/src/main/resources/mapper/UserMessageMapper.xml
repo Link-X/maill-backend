@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ticket.core.mapper.UserMessageMapper">
+
+    <resultMap id="UserMessageResultMap" type="com.ticket.core.domain.entity.UserMessage">
+        <id     column="id"          property="id"/>
+        <result column="user_id"     property="userId"/>
+        <result column="message_id"  property="messageId"/>
+        <result column="is_read"     property="isRead"/>
+        <result column="read_at"     property="readAt"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+        <association property="message" javaType="com.ticket.core.domain.entity.Message">
+            <result column="m_type"        property="type"/>
+            <result column="m_title"       property="title"/>
+            <result column="m_content"     property="content"/>
+            <result column="m_link_type"   property="linkType"/>
+            <result column="m_link_target" property="linkTarget"/>
+            <result column="m_broadcast"   property="broadcast"/>
+        </association>
+    </resultMap>
+
+    <insert id="insert" parameterType="com.ticket.core.domain.entity.UserMessage" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO user_message (user_id, message_id, is_read, read_at, create_time, update_time)
+        VALUES (#{userId}, #{messageId}, #{isRead}, #{readAt}, #{createTime}, #{updateTime})
+    </insert>
+
+    <insert id="batchInsert">
+        INSERT INTO user_message (user_id, message_id, is_read, read_at, create_time, update_time) VALUES
+        <foreach collection="list" item="it" separator=",">
+            (#{it.userId}, #{it.messageId}, #{it.isRead}, #{it.readAt}, NOW(), NOW())
+        </foreach>
+    </insert>
+
+    <insert id="lazyInsertBroadcastsFor">
+        INSERT INTO user_message (user_id, message_id, is_read, create_time, update_time)
+        SELECT #{userId}, m.id, 0, NOW(), NOW()
+        FROM message m
+        WHERE m.broadcast = 1
+          AND NOT EXISTS (
+            SELECT 1 FROM user_message um
+            WHERE um.user_id = #{userId} AND um.message_id = m.id
+          )
+    </insert>
+
+    <update id="markRead">
+        UPDATE user_message
+        SET is_read = 1, read_at = #{now}, update_time = #{now}
+        WHERE user_id = #{userId} AND id IN
+        <foreach collection="ids" item="id" open="(" close=")" separator=",">#{id}</foreach>
+    </update>
+
+    <update id="markAllRead">
+        UPDATE user_message um
+        <if test="type != null">
+            JOIN message m ON m.id = um.message_id AND m.type = #{type}
+        </if>
+        SET um.is_read = 1, um.read_at = #{now}, um.update_time = #{now}
+        WHERE um.user_id = #{userId} AND um.is_read = 0
+    </update>
+
+    <delete id="deleteByIds">
+        DELETE FROM user_message
+        WHERE user_id = #{userId} AND id IN
+        <foreach collection="ids" item="id" open="(" close=")" separator=",">#{id}</foreach>
+    </delete>
+
+    <select id="selectByUser" resultMap="UserMessageResultMap">
+        SELECT um.id, um.user_id, um.message_id, um.is_read, um.read_at, um.create_time, um.update_time,
+               m.type AS m_type, m.title AS m_title, m.content AS m_content,
+               m.link_type AS m_link_type, m.link_target AS m_link_target, m.broadcast AS m_broadcast
+        FROM user_message um
+        JOIN message m ON m.id = um.message_id
+        WHERE um.user_id = #{userId}
+        <if test="type != null">AND m.type = #{type}</if>
+        ORDER BY um.create_time DESC, um.id DESC
+        <if test="offset != null and size != null">LIMIT #{size} OFFSET #{offset}</if>
+    </select>
+
+    <select id="countUnreadByType" resultType="int">
+        SELECT COUNT(*) FROM user_message um
+        JOIN message m ON m.id = um.message_id
+        WHERE um.user_id = #{userId} AND um.is_read = 0 AND m.type = #{type}
+    </select>
+
+    <select id="countUnreadAll" resultType="int">
+        SELECT COUNT(*) FROM user_message
+        WHERE user_id = #{userId} AND is_read = 0
+    </select>
+</mapper>

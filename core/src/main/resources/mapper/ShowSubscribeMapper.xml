@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ticket.core.mapper.ShowSubscribeMapper">
+
+    <resultMap id="SubscribeMap" type="com.ticket.core.domain.entity.ShowSubscribe">
+        <id     column="id"                    property="id"/>
+        <result column="user_id"               property="userId"/>
+        <result column="show_id"               property="showId"/>
+        <result column="notify_before_minutes" property="notifyBeforeMinutes"/>
+        <result column="notified_pre"          property="notifiedPre"/>
+        <result column="notified_open"         property="notifiedOpen"/>
+        <result column="create_time"           property="createTime"/>
+        <result column="update_time"           property="updateTime"/>
+        <association property="show" javaType="com.ticket.core.domain.vo.ShowVO">
+            <id     column="s_id"             property="id"/>
+            <result column="s_name"           property="name"/>
+            <result column="s_poster_url"     property="posterUrl"/>
+            <result column="s_venue"          property="venue"/>
+            <result column="s_open_sale_time" property="openSaleTime"/>
+        </association>
+    </resultMap>
+
+    <insert id="insertIgnore">
+        INSERT IGNORE INTO show_subscribe (user_id, show_id, notify_before_minutes,
+                                            notified_pre, notified_open, create_time, update_time)
+        VALUES (#{userId}, #{showId}, #{notifyBeforeMinutes}, 0, 0, NOW(), NOW())
+    </insert>
+
+    <delete id="delete">
+        DELETE FROM show_subscribe WHERE user_id = #{userId} AND show_id = #{showId}
+    </delete>
+
+    <select id="countSubscribe" resultType="int">
+        SELECT COUNT(*) FROM show_subscribe WHERE user_id = #{userId} AND show_id = #{showId}
+    </select>
+
+    <select id="selectByUser" resultMap="SubscribeMap">
+        SELECT ss.id, ss.user_id, ss.show_id, ss.notify_before_minutes,
+               ss.notified_pre, ss.notified_open, ss.create_time, ss.update_time,
+               s.id AS s_id, s.name AS s_name, s.poster_url AS s_poster_url,
+               s.venue AS s_venue, s.open_sale_time AS s_open_sale_time
+        FROM show_subscribe ss
+        JOIN `show` s ON s.id = ss.show_id
+        WHERE ss.user_id = #{userId}
+        ORDER BY ss.create_time DESC
+        <if test="offset != null and size != null">LIMIT #{size} OFFSET #{offset}</if>
+    </select>
+
+    <select id="countByUser" resultType="int">
+        SELECT COUNT(*) FROM show_subscribe WHERE user_id = #{userId}
+    </select>
+
+    <select id="selectPendingPre" resultMap="SubscribeMap">
+        SELECT ss.id, ss.user_id, ss.show_id, ss.notify_before_minutes,
+               ss.notified_pre, ss.notified_open, ss.create_time, ss.update_time,
+               s.id AS s_id, s.name AS s_name, s.poster_url AS s_poster_url,
+               s.venue AS s_venue, s.open_sale_time AS s_open_sale_time
+        FROM show_subscribe ss
+        JOIN `show` s ON s.id = ss.show_id
+        WHERE ss.notified_pre = 0
+          AND s.open_sale_time IS NOT NULL
+          AND DATE_SUB(s.open_sale_time, INTERVAL ss.notify_before_minutes MINUTE) &lt;= #{now}
+          AND s.open_sale_time &gt; #{now}
+        LIMIT 200
+    </select>
+
+    <select id="selectPendingOpen" resultMap="SubscribeMap">
+        SELECT ss.id, ss.user_id, ss.show_id, ss.notify_before_minutes,
+               ss.notified_pre, ss.notified_open, ss.create_time, ss.update_time,
+               s.id AS s_id, s.name AS s_name, s.poster_url AS s_poster_url,
+               s.venue AS s_venue, s.open_sale_time AS s_open_sale_time
+        FROM show_subscribe ss
+        JOIN `show` s ON s.id = ss.show_id
+        WHERE ss.notified_open = 0
+          AND s.open_sale_time IS NOT NULL
+          AND s.open_sale_time &lt;= #{now}
+        LIMIT 200
+    </select>
+
+    <update id="markNotifiedPre">
+        UPDATE show_subscribe SET notified_pre = 1, update_time = NOW() WHERE id = #{id}
+    </update>
+
+    <update id="markNotifiedOpen">
+        UPDATE show_subscribe SET notified_open = 1, update_time = NOW() WHERE id = #{id}
+    </update>
+
+</mapper>

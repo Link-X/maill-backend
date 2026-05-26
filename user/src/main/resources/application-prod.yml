@@ -31,6 +31,19 @@ cors:
   # 允许跨域的前端 origin 列表(逗号分隔),生产环境必须显式配置,禁止 *
   allowed-origins: ${CORS_ALLOWED_ORIGINS}
 
+elasticsearch:
+  host: ${ES_HOST:localhost}:${ES_PORT:9200}
+  connect-timeout-ms: ${ES_CONNECT_TIMEOUT:3000}
+  socket-timeout-ms: ${ES_SOCKET_TIMEOUT:10000}
+
+# MinIO 对象存储(用户评价晒图上传)
+minio:
+  endpoint: ${MINIO_ENDPOINT}
+  access-key: ${MINIO_ACCESS_KEY}
+  secret-key: ${MINIO_SECRET_KEY}
+  bucket: ${MINIO_BUCKET:image}
+  public-endpoint: ${MINIO_PUBLIC_ENDPOINT:${MINIO_ENDPOINT}}
+
 logging:
   level:
     root: WARN

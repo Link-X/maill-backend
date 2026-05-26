@@ -27,7 +27,24 @@ public enum ErrorCode {
     REFUND_TOO_CLOSE_TO_START(1010, "距演出开始不足1天，无法退款"),
     REFUND_ALL_TICKETS_USED(1011, "所有票券均已使用，无法退款"),
     CATEGORY_IN_USE(1012, "分类已被演出引用，无法删除"),
-    CATEGORY_NAME_DUPLICATED(1013, "分类名已存在");
+    CATEGORY_NAME_DUPLICATED(1013, "分类名已存在"),
+    BANNER_NOT_FOUND(1020, "Banner 不存在"),
+    ARTIST_NOT_FOUND(1030, "艺人不存在"),
+    ARTIST_NAME_DUPLICATED(1031, "艺人名已存在"),
+    ARTICLE_CATEGORY_NOT_FOUND(1040, "资讯分类不存在"),
+    ARTICLE_CATEGORY_NAME_DUPLICATED(1041, "资讯分类名已存在"),
+    ARTICLE_CATEGORY_IN_USE(1042, "资讯分类已被资讯引用,无法删除"),
+    ARTICLE_NOT_FOUND(1050, "资讯不存在"),
+    MESSAGE_NOT_FOUND(1060, "消息不存在"),
+    FAVORITE_GROUP_NOT_FOUND(1070, "收藏分组不存在"),
+    FAVORITE_GROUP_NAME_DUPLICATED(1071, "分组名已存在"),
+    SUBSCRIBE_NOT_FOUND(1080, "订阅不存在"),
+    REVIEW_NOT_FOUND(1090, "评价不存在"),
+    REVIEW_NO_PERMISSION(1091, "无权评价该演出"),
+    REVIEW_DISABLED(1092, "该演出未开放评价"),
+    REVIEW_PARENT_NOT_FOUND(1093, "回复的评论不存在"),
+    REVIEW_RATING_REQUIRED(1094, "请填写评分"),
+    REVIEW_DELETE_FORBIDDEN(1095, "无权删除该评价");
 
     private final int code;
     private final String message;

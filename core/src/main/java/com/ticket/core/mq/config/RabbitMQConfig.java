@@ -31,6 +31,11 @@ public class RabbitMQConfig {
     public static final String INVENTORY_SYNC_QUEUE      = "inventory.sync.queue";
     public static final String NOTIFICATION_QUEUE        = "notification.queue";
 
+    // 搜索同步相关
+    public static final String SEARCH_SYNC_EXCHANGE    = "search.sync.exchange";
+    public static final String SEARCH_SYNC_QUEUE       = "search.sync.queue";
+    public static final String SEARCH_SYNC_ROUTING_KEY = "search.sync";
+
     @Bean
     public MessageConverter messageConverter() {
         return new Jackson2JsonMessageConverter();
@@ -127,5 +132,26 @@ public class RabbitMQConfig {
     @Bean
     public Binding refundBinding() {
         return BindingBuilder.bind(refundQueue()).to(refundExchange()).with(REFUND_ROUTING_KEY);
+    }
+
+    /** 搜索同步交换机 */
+    @Bean
+    public DirectExchange searchSyncExchange() {
+        return new DirectExchange(SEARCH_SYNC_EXCHANGE, true, false);
+    }
+
+    /** 搜索同步队列 */
+    @Bean
+    public Queue searchSyncQueue() {
+        return QueueBuilder.durable(SEARCH_SYNC_QUEUE).build();
+    }
+
+    /** 绑定:搜索同步队列 ↔ 搜索同步交换机 */
+    @Bean
+    public Binding searchSyncBinding() {
+        return BindingBuilder
+                .bind(searchSyncQueue())
+                .to(searchSyncExchange())
+                .with(SEARCH_SYNC_ROUTING_KEY);
     }
 }

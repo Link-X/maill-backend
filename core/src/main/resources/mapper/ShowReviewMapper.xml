@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ticket.core.mapper.ShowReviewMapper">
+
+    <resultMap id="ReviewMap" type="com.ticket.core.domain.entity.ShowReview">
+        <id     column="id"               property="id"/>
+        <result column="show_id"          property="showId"/>
+        <result column="user_id"          property="userId"/>
+        <result column="order_id"         property="orderId"/>
+        <result column="parent_id"        property="parentId"/>
+        <result column="reply_to_user_id" property="replyToUserId"/>
+        <result column="content"          property="content"/>
+        <result column="rating"           property="rating"/>
+        <result column="like_count"       property="likeCount"/>
+        <result column="reply_count"      property="replyCount"/>
+        <result column="status"           property="status"/>
+        <result column="create_time"      property="createTime"/>
+        <result column="update_time"      property="updateTime"/>
+        <result column="username"         property="username"/>
+        <result column="reply_to_username" property="replyToUsername"/>
+    </resultMap>
+
+    <sql id="AllColumns">
+        id, show_id, user_id, order_id, parent_id, reply_to_user_id, content, rating,
+        like_count, reply_count, status, create_time, update_time
+    </sql>
+
+    <insert id="insert" parameterType="com.ticket.core.domain.entity.ShowReview"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO show_review (show_id, user_id, order_id, parent_id, reply_to_user_id,
+                                 content, rating, like_count, reply_count, status, create_time, update_time)
+        VALUES (#{showId}, #{userId}, #{orderId}, #{parentId}, #{replyToUserId},
+                #{content}, #{rating}, #{likeCount}, #{replyCount}, #{status}, #{createTime}, #{updateTime})
+    </insert>
+
+    <update id="update" parameterType="com.ticket.core.domain.entity.ShowReview">
+        UPDATE show_review
+        SET content = #{content}, update_time = #{updateTime}
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteById">
+        DELETE FROM show_review WHERE id = #{id}
+    </delete>
+
+    <select id="selectById" resultMap="ReviewMap">
+        SELECT <include refid="AllColumns"/>, NULL AS username, NULL AS reply_to_username
+        FROM show_review WHERE id = #{id}
+    </select>
+
+    <select id="selectFirstLevel" resultMap="ReviewMap">
+        SELECT r.id, r.show_id, r.user_id, r.order_id, r.parent_id, r.reply_to_user_id,
+               r.content, r.rating, r.like_count, r.reply_count, r.status,
+               r.create_time, r.update_time,
+               u.username AS username, NULL AS reply_to_username
+        FROM show_review r
+        LEFT JOIN `user` u ON u.id = r.user_id
+        WHERE r.show_id = #{showId} AND r.parent_id IS NULL
+        <if test="includeHidden == null or !includeHidden">AND r.status &lt;&gt; 2</if>
+        <choose>
+            <when test='"hottest".equals(sort)'>ORDER BY r.like_count DESC, r.create_time DESC</when>
+            <otherwise>ORDER BY r.create_time DESC</otherwise>
+        </choose>
+        <if test="offset != null and size != null">LIMIT #{size} OFFSET #{offset}</if>
+    </select>
+
+    <select id="countFirstLevel" resultType="int">
+        SELECT COUNT(*) FROM show_review
+        WHERE show_id = #{showId} AND parent_id IS NULL
+        <if test="includeHidden == null or !includeHidden">AND status &lt;&gt; 2</if>
+    </select>
+
+    <select id="selectReplies" resultMap="ReviewMap">
+        SELECT r.id, r.show_id, r.user_id, r.order_id, r.parent_id, r.reply_to_user_id,
+               r.content, r.rating, r.like_count, r.reply_count, r.status,
+               r.create_time, r.update_time,
+               u.username AS username, u2.username AS reply_to_username
+        FROM show_review r
+        LEFT JOIN `user` u  ON u.id  = r.user_id
+        LEFT JOIN `user` u2 ON u2.id = r.reply_to_user_id
+        WHERE r.parent_id = #{parentId} AND r.status &lt;&gt; 2
+        ORDER BY r.create_time ASC
+        <if test="offset != null and size != null">LIMIT #{size} OFFSET #{offset}</if>
+    </select>
+
+    <select id="countReplies" resultType="int">
+        SELECT COUNT(*) FROM show_review WHERE parent_id = #{parentId} AND status &lt;&gt; 2
+    </select>
+
+    <select id="selectByUser" resultMap="ReviewMap">
+        SELECT <include refid="AllColumns"/>, NULL AS username, NULL AS reply_to_username
+        FROM show_review WHERE user_id = #{userId}
+        ORDER BY id DESC
+        <if test="offset != null and size != null">LIMIT #{size} OFFSET #{offset}</if>
+    </select>
+
+    <update id="incrLikeCount">UPDATE show_review SET like_count = like_count + 1 WHERE id = #{id}</update>
+    <update id="decrLikeCount">UPDATE show_review SET like_count = GREATEST(like_count - 1, 0) WHERE id = #{id}</update>
+    <update id="incrReplyCount">UPDATE show_review SET reply_count = reply_count + 1 WHERE id = #{id}</update>
+    <update id="decrReplyCount">UPDATE show_review SET reply_count = GREATEST(reply_count - 1, 0) WHERE id = #{id}</update>
+
+    <update id="updateStatus">UPDATE show_review SET status = #{status}, update_time = #{updateTime} WHERE id = #{id}</update>
+
+    <select id="aggregateRating" resultType="map">
+        SELECT AVG(rating) AS avg_rating, COUNT(*) AS review_count
+        FROM show_review
+        WHERE show_id = #{showId} AND parent_id IS NULL AND status = 0 AND rating IS NOT NULL
+    </select>
+
+    <select id="countByShow" resultType="int">
+        SELECT COUNT(*) FROM show_review WHERE show_id = #{showId} AND parent_id IS NULL
+    </select>
+
+    <select id="selectAdminList" resultMap="ReviewMap">
+        SELECT r.id, r.show_id, r.user_id, r.order_id, r.parent_id, r.reply_to_user_id,
+               r.content, r.rating, r.like_count, r.reply_count, r.status,
+               r.create_time, r.update_time,
+               u.username AS username, NULL AS reply_to_username
+        FROM show_review r
+        LEFT JOIN `user` u ON u.id = r.user_id
+        <where>
+            <if test="showId != null">AND r.show_id = #{showId}</if>
+            <if test="status != null">AND r.status = #{status}</if>
+            <if test="keyword != null and keyword != ''">AND r.content LIKE CONCAT('%', #{keyword}, '%')</if>
+        </where>
+        ORDER BY r.id DESC
+        <if test="offset != null and size != null">LIMIT #{size} OFFSET #{offset}</if>
+    </select>
+
+    <select id="countAdminList" resultType="int">
+        SELECT COUNT(*) FROM show_review r
+        <where>
+            <if test="showId != null">AND r.show_id = #{showId}</if>
+            <if test="status != null">AND r.status = #{status}</if>
+            <if test="keyword != null and keyword != ''">AND r.content LIKE CONCAT('%', #{keyword}, '%')</if>
+        </where>
+    </select>
+
+</mapper>

@@ -36,3 +36,9 @@ jwt:
 logging:
   level:
     com.ticket: DEBUG
+
+# Elasticsearch (本地 docker-compose)
+elasticsearch:
+  host: localhost:9200
+  connect-timeout-ms: 3000
+  socket-timeout-ms: 10000

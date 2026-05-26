@@ -36,8 +36,10 @@ public class ShowController {
         show.setVenue(req.getVenue());
         show.setPosterUrl(req.getPosterUrl());
         show.setExtend(req.getExtend());
+        show.setReviewMode(req.getReviewMode());
+        show.setOpenSaleTime(req.getOpenSaleTime());
         // status 由 service 强制为 1；id / createTime / updateTime 由 service 生成
-        return Result.success(showService.create(show));
+        return Result.success(showService.create(show, req.getArtistIds(), req.getArtistRoles()));
     }
 
     @Operation(summary = "更新演出", description = "支持改 status：0=草稿 1=已上架 2=已下架")
@@ -54,7 +56,9 @@ public class ShowController {
         show.setPosterUrl(req.getPosterUrl());
         show.setExtend(req.getExtend());
         show.setStatus(req.getStatus());
-        return Result.success(showService.update(show));
+        show.setReviewMode(req.getReviewMode());
+        show.setOpenSaleTime(req.getOpenSaleTime());
+        return Result.success(showService.update(show, req.getArtistIds(), req.getArtistRoles()));
     }
 
     @Operation(summary = "演出详情（原始 Show 实体）", description = "若需要 categoryName / cityName，请用用户端 /api/show/{id} 的 ShowVO")

@@ -30,4 +30,16 @@ public class ShowUpdateRequest {
 
     @Schema(description = "状态 0=草稿 1=已上架 2=已下架", example = "1", allowableValues = {"0","1","2"})
     @Min(value = 0) @Max(value = 2) private Integer status;
+
+    @Schema(description = "评价模式 0=无评价 1=所有可评 2=仅已观看;默认 1",
+            example = "1", allowableValues = {"0","1","2"})
+    @Min(value = 0) @Max(value = 2)
+    private Integer reviewMode;
+
+    @Schema(description = "开售时间(null=立即可购)") private java.time.LocalDateTime openSaleTime;
+
+    @Schema(description = "关联艺人 ID 列表(可空)") private java.util.List<Long> artistIds;
+
+    @Schema(description = "艺人角色映射 {artistId: '主演'}", example = "{\"1\":\"主演\"}")
+    private java.util.Map<Long, String> artistRoles;
 }

@@ -1,57 +1,132 @@
 package com.ticket.core.service;
 
+import com.ticket.core.domain.entity.Artist;
 import com.ticket.core.domain.entity.Show;
+import com.ticket.core.domain.entity.ShowArtist;
 import com.ticket.core.domain.vo.ShowVO;
+import com.ticket.core.mapper.ArtistMapper;
+import com.ticket.core.mapper.ShowArtistMapper;
 import com.ticket.core.mapper.ShowMapper;
+import com.ticket.core.mq.event.SearchSyncEvent;
+import com.ticket.core.mq.producer.SearchSyncProducer;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
-/**
- * 演出服务（只负责 Show 维度的 CRUD / 列表 / 详情）。
- * 场次相关请见 {@link SessionService}。
- */
 @Service
 public class ShowService {
 
     private final ShowMapper showMapper;
+    private final ShowArtistMapper showArtistMapper;
+    private final ArtistMapper artistMapper;
+    private final SearchSyncProducer searchSyncProducer;
 
-    public ShowService(ShowMapper showMapper) {
+    public ShowService(ShowMapper showMapper,
+                       ShowArtistMapper showArtistMapper,
+                       ArtistMapper artistMapper,
+                       SearchSyncProducer searchSyncProducer) {
         this.showMapper = showMapper;
+        this.showArtistMapper = showArtistMapper;
+        this.artistMapper = artistMapper;
+        this.searchSyncProducer = searchSyncProducer;
     }
 
-    /**
-     * 创建演出（status 强制为 1，已上架）
-     */
-    public Show create(Show show) {
+    @Transactional
+    public Show create(Show show, List<Long> artistIds, Map<Long, String> artistRoles) {
         LocalDateTime now = LocalDateTime.now();
         show.setStatus(1);
+        if (show.getReviewMode() == null) show.setReviewMode(1);
+        if (show.getAvgRating() == null) show.setAvgRating(java.math.BigDecimal.ZERO);
+        if (show.getReviewCount() == null) show.setReviewCount(0);
         show.setCreateTime(now);
         show.setUpdateTime(now);
         showMapper.insert(show);
-        return show;
+        syncShowArtists(show.getId(), artistIds, artistRoles);
+        Show saved = showMapper.selectById(show.getId());
+        saved.setArtists(showArtistMapper.selectArtistsByShowId(show.getId()));
+        // 发送搜索同步事件：写 ES
+        searchSyncProducer.send(SearchSyncEvent.upsert("show", show.getId()));
+        return saved;
     }
 
-    public Show update(Show show) {
+    /** 旧签名兼容(若有其他 caller) */
+    @Transactional
+    public Show create(Show show) {
+        return create(show, null, null);
+    }
+
+    @Transactional
+    public Show update(Show show, List<Long> artistIds, Map<Long, String> artistRoles) {
         show.setUpdateTime(LocalDateTime.now());
+        // 不在 update 中修改 avg_rating / review_count,XML 也未 set 它们
         showMapper.update(show);
-        return showMapper.selectById(show.getId());
+        if (artistIds != null) {
+            syncShowArtists(show.getId(), artistIds, artistRoles);
+        }
+        Show updated = showMapper.selectById(show.getId());
+        updated.setArtists(showArtistMapper.selectArtistsByShowId(show.getId()));
+        // 发送搜索同步事件：写 ES
+        searchSyncProducer.send(SearchSyncEvent.upsert("show", show.getId()));
+        return updated;
+    }
+
+    @Transactional
+    public Show update(Show show) {
+        return update(show, null, null);
+    }
+
+    private void syncShowArtists(Long showId, List<Long> artistIds, Map<Long, String> artistRoles) {
+        // 收集旧关联 artistId(用于变更后刷新 show_count)
+        List<Artist> oldArtists = showArtistMapper.selectArtistsByShowId(showId);
+        Set<Long> affected = new HashSet<>();
+        for (Artist a : oldArtists) affected.add(a.getId());
+
+        showArtistMapper.deleteByShowId(showId);
+
+        if (artistIds != null && !artistIds.isEmpty()) {
+            List<ShowArtist> links = new ArrayList<>();
+            int sort = 10;
+            for (Long aid : artistIds) {
+                ShowArtist sa = new ShowArtist();
+                sa.setShowId(showId);
+                sa.setArtistId(aid);
+                sa.setRole(artistRoles != null ? artistRoles.get(aid) : null);
+                sa.setSort(sort);
+                links.add(sa);
+                affected.add(aid);
+                sort += 10;
+            }
+            showArtistMapper.batchInsert(links);
+        }
+        // 重算冗余 show_count
+        for (Long aid : affected) {
+            artistMapper.refreshShowCount(aid);
+        }
     }
 
     public Show getById(Long id) {
-        return showMapper.selectById(id);
+        Show show = showMapper.selectById(id);
+        if (show != null) {
+            show.setArtists(showArtistMapper.selectArtistsByShowId(id));
+        }
+        return show;
     }
 
-    /** 带 categoryName / cityName 的演出详情（用户端 / 列表展示用） */
     public ShowVO getVOById(Long id) {
-        return showMapper.selectVOById(id);
+        ShowVO vo = showMapper.selectVOById(id);
+        if (vo != null) {
+            vo.setArtists(showArtistMapper.selectArtistsByShowId(id));
+        }
+        return vo;
     }
 
-    /**
-     * 列出演出
-     * status 非空调 selectByStatus，否则 selectAll
-     */
     public List<Show> listAll(Integer status) {
         if (status != null) {
             return showMapper.selectByStatus(status);
@@ -59,9 +134,6 @@ public class ShowService {
         return showMapper.selectAll();
     }
 
-    /**
-     * 用户端分页列表（仅 status=1，带 categoryName / cityName）
-     */
     public List<ShowVO> listPaged(String name, Long categoryId, String cityCode,
                                   String venue, int page, int size) {
         int offset = (page - 1) * size;

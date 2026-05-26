@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.ticket.core.mapper.ArticleMapper">
+
+    <resultMap id="ArticleResultMap" type="com.ticket.core.domain.entity.Article">
+        <id     column="id"           property="id"/>
+        <result column="category_id"  property="categoryId"/>
+        <result column="title"        property="title"/>
+        <result column="summary"      property="summary"/>
+        <result column="content"      property="content"/>
+        <result column="cover_url"    property="coverUrl"/>
+        <result column="artist_id"    property="artistId"/>
+        <result column="author"       property="author"/>
+        <result column="view_count"   property="viewCount"/>
+        <result column="status"       property="status"/>
+        <result column="published_at" property="publishedAt"/>
+        <result column="create_time"  property="createTime"/>
+        <result column="update_time"  property="updateTime"/>
+    </resultMap>
+
+    <sql id="AllColumns">
+        id, category_id, title, summary, content, cover_url, artist_id, author,
+        view_count, status, published_at, create_time, update_time
+    </sql>
+
+    <insert id="insert" parameterType="com.ticket.core.domain.entity.Article"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO article (category_id, title, summary, content, cover_url, artist_id, author,
+                             view_count, status, published_at, create_time, update_time)
+        VALUES (#{categoryId}, #{title}, #{summary}, #{content}, #{coverUrl}, #{artistId}, #{author},
+                #{viewCount}, #{status}, #{publishedAt}, #{createTime}, #{updateTime})
+    </insert>
+
+    <update id="update" parameterType="com.ticket.core.domain.entity.Article">
+        UPDATE article
+        SET category_id = #{categoryId},
+            title       = #{title},
+            summary     = #{summary},
+            content     = #{content},
+            cover_url   = #{coverUrl},
+            artist_id   = #{artistId},
+            author      = #{author},
+            update_time = #{updateTime}
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateStatus">
+        UPDATE article
+        SET status = #{status},
+            published_at = #{publishedAt},
+            update_time = #{updateTime}
+        WHERE id = #{id}
+    </update>
+
+    <update id="incrViewCount">
+        UPDATE article SET view_count = view_count + 1 WHERE id = #{id}
+    </update>
+
+    <delete id="deleteById">
+        DELETE FROM article WHERE id = #{id}
+    </delete>
+
+    <select id="selectById" resultMap="ArticleResultMap">
+        SELECT <include refid="AllColumns"/> FROM article WHERE id = #{id}
+    </select>
+
+    <select id="selectByCondition" resultMap="ArticleResultMap">
+        SELECT <include refid="AllColumns"/>
+        FROM article
+        <where>
+            <if test="status != null">AND status = #{status}</if>
+            <if test="categoryId != null">AND category_id = #{categoryId}</if>
+            <if test="keyword != null and keyword != ''">AND title LIKE CONCAT(#{keyword}, '%')</if>
+        </where>
+        ORDER BY id DESC
+        <if test="offset != null and size != null">
+            LIMIT #{size} OFFSET #{offset}
+        </if>
+    </select>
+
+    <select id="countByCondition" resultType="int">
+        SELECT COUNT(*) FROM article
+        <where>
+            <if test="status != null">AND status = #{status}</if>
+            <if test="categoryId != null">AND category_id = #{categoryId}</if>
+            <if test="keyword != null and keyword != ''">AND title LIKE CONCAT(#{keyword}, '%')</if>
+        </where>
+    </select>
+
+    <select id="selectPublished" resultMap="ArticleResultMap">
+        SELECT <include refid="AllColumns"/>
+        FROM article
+        WHERE status = 1
+        <if test="categoryId != null">AND category_id = #{categoryId}</if>
+        ORDER BY published_at DESC, id DESC
+        <if test="offset != null and size != null">
+            LIMIT #{size} OFFSET #{offset}
+        </if>
+    </select>
+
+    <select id="countPublished" resultType="int">
+        SELECT COUNT(*) FROM article
+        WHERE status = 1
+        <if test="categoryId != null">AND category_id = #{categoryId}</if>
+    </select>
+
+    <select id="selectByArtistId" resultMap="ArticleResultMap">
+        SELECT <include refid="AllColumns"/>
+        FROM article
+        WHERE status = 1 AND artist_id = #{artistId}
+        ORDER BY published_at DESC, id DESC
+        <if test="offset != null and size != null">
+            LIMIT #{size} OFFSET #{offset}
+        </if>
+    </select>
+
+</mapper>

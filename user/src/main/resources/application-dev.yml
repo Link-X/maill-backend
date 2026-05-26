@@ -3,7 +3,7 @@ server:
 
 spring:
   datasource:
-    url: jdbc:mysql://localhost:3306/ticket_system?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+    url: jdbc:mysql://localhost:3306/ticket_system?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&connectionCollation=utf8mb4_unicode_ci&sessionVariables=character_set_results%3Dutf8mb4%2Ccharacter_set_client%3Dutf8mb4%2Ccharacter_set_connection%3Dutf8mb4
     username: root
     password: root123
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -49,3 +49,18 @@ springdoc:
     title: Ticket User API
     description: 用户端 REST API（演出 / 场次 / 分类 / 城市 / 下单 / 支付 / 入场核验）
     version: 1.0.0
+
+# Elasticsearch (本地 docker-compose)
+elasticsearch:
+  host: localhost:9200
+  connect-timeout-ms: 3000
+  socket-timeout-ms: 10000
+
+# MinIO (用户评价晒图上传)
+minio:
+  endpoint: http://localhost:9000
+  access-key: minioadmin
+  secret-key: minioadmin123
+  bucket: image
+  # 浏览器访问 URL 用的 host，本地与 endpoint 相同；线上可换 CDN 或反向代理域名
+  public-endpoint: http://localhost:9000

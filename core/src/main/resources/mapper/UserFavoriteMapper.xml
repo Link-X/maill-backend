@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ticket.core.mapper.UserFavoriteMapper">
+
+    <resultMap id="FavoriteMap" type="com.ticket.core.domain.entity.UserFavorite">
+        <id     column="id"          property="id"/>
+        <result column="user_id"     property="userId"/>
+        <result column="show_id"     property="showId"/>
+        <result column="group_id"    property="groupId"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+        <association property="show" javaType="com.ticket.core.domain.vo.ShowVO">
+            <id     column="s_id"           property="id"/>
+            <result column="s_name"         property="name"/>
+            <result column="s_description"  property="description"/>
+            <result column="s_category_id"  property="categoryId"/>
+            <result column="s_category_name" property="categoryName"/>
+            <result column="s_city_code"    property="cityCode"/>
+            <result column="s_city_name"    property="cityName"/>
+            <result column="s_address"      property="address"/>
+            <result column="s_poster_url"   property="posterUrl"/>
+            <result column="s_venue"        property="venue"/>
+            <result column="s_status"       property="status"/>
+            <result column="s_review_mode"  property="reviewMode"/>
+            <result column="s_avg_rating"   property="avgRating"/>
+            <result column="s_review_count" property="reviewCount"/>
+            <result column="s_open_sale_time" property="openSaleTime"/>
+        </association>
+    </resultMap>
+
+    <insert id="insertIgnore">
+        INSERT IGNORE INTO user_favorite (user_id, show_id, group_id, create_time, update_time)
+        VALUES (#{userId}, #{showId}, #{groupId}, NOW(), NOW())
+    </insert>
+
+    <delete id="delete">
+        DELETE FROM user_favorite WHERE user_id = #{userId} AND show_id = #{showId}
+    </delete>
+
+    <update id="updateGroup">
+        UPDATE user_favorite
+        SET group_id = #{groupId}, update_time = NOW()
+        WHERE user_id = #{userId} AND show_id = #{showId}
+    </update>
+
+    <select id="countFavorite" resultType="int">
+        SELECT COUNT(*) FROM user_favorite WHERE user_id = #{userId} AND show_id = #{showId}
+    </select>
+
+    <select id="selectByUser" resultMap="FavoriteMap">
+        SELECT uf.id, uf.user_id, uf.show_id, uf.group_id, uf.create_time, uf.update_time,
+               s.id AS s_id, s.name AS s_name, s.description AS s_description,
+               s.category_id AS s_category_id, c.name AS s_category_name,
+               s.city_code AS s_city_code, ct.name AS s_city_name,
+               s.address AS s_address, s.poster_url AS s_poster_url, s.venue AS s_venue,
+               s.status AS s_status, s.review_mode AS s_review_mode, s.avg_rating AS s_avg_rating,
+               s.review_count AS s_review_count, s.open_sale_time AS s_open_sale_time
+        FROM user_favorite uf
+        LEFT JOIN `show` s ON s.id = uf.show_id
+        LEFT JOIN category c  ON c.id   = s.category_id
+        LEFT JOIN city     ct ON ct.code = s.city_code
+        WHERE uf.user_id = #{userId}
+        <if test="groupId != null">AND uf.group_id = #{groupId}</if>
+        <if test="unset != null and unset">AND uf.group_id IS NULL</if>
+        ORDER BY uf.create_time DESC
+        <if test="offset != null and size != null">LIMIT #{size} OFFSET #{offset}</if>
+    </select>
+
+    <select id="countByUser" resultType="int">
+        SELECT COUNT(*) FROM user_favorite
+        WHERE user_id = #{userId}
+        <if test="groupId != null">AND group_id = #{groupId}</if>
+        <if test="unset != null and unset">AND group_id IS NULL</if>
+    </select>
+
+    <select id="countByShowId" resultType="int">
+        SELECT COUNT(*) FROM user_favorite WHERE show_id = #{showId}
+    </select>
+
+</mapper>
