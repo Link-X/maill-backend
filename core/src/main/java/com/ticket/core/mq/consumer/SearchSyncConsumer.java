@@ -125,7 +125,6 @@ public class SearchSyncConsumer {
         }
         doc.put("poster_url", s.getPosterUrl());
         doc.put("status", s.getStatus());
-        if (s.getOpenSaleTime() != null) doc.put("open_sale_time", s.getOpenSaleTime().format(DTF));
         if (s.getCreateTime() != null) doc.put("create_time", s.getCreateTime().format(DTF));
         doc.put("avg_rating", s.getAvgRating());
         doc.put("review_count", s.getReviewCount());

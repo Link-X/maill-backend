@@ -13,7 +13,6 @@ package com.ticket.common.es.index;
  *  - city_name       : keyword
  *  - poster_url      : keyword   不分词
  *  - status          : integer
- *  - open_sale_time  : date
  *  - create_time     : date
  *  - avg_rating      : float
  *  - review_count    : integer
@@ -36,7 +35,6 @@ public final class ShowIndexMapping {
             "      \"city_name\":      { \"type\": \"keyword\" },\n" +
             "      \"poster_url\":     { \"type\": \"keyword\", \"index\": false },\n" +
             "      \"status\":         { \"type\": \"integer\" },\n" +
-            "      \"open_sale_time\": { \"type\": \"date\", \"format\": \"yyyy-MM-dd HH:mm:ss||epoch_millis\" },\n" +
             "      \"create_time\":    { \"type\": \"date\", \"format\": \"yyyy-MM-dd HH:mm:ss||epoch_millis\" },\n" +
             "      \"avg_rating\":     { \"type\": \"float\" },\n" +
             "      \"review_count\":   { \"type\": \"integer\" }\n" +

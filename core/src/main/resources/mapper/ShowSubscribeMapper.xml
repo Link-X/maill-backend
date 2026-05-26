@@ -17,8 +17,19 @@
             <result column="s_name"           property="name"/>
             <result column="s_poster_url"     property="posterUrl"/>
             <result column="s_venue"          property="venue"/>
-            <result column="s_open_sale_time" property="openSaleTime"/>
         </association>
+    </resultMap>
+
+    <resultMap id="PendingNotifyMap" type="com.ticket.core.domain.vo.PendingSubscribeNotify">
+        <result column="subscribe_id"          property="subscribeId"/>
+        <result column="user_id"               property="userId"/>
+        <result column="show_id"               property="showId"/>
+        <result column="show_name"             property="showName"/>
+        <result column="session_id"            property="sessionId"/>
+        <result column="session_name"          property="sessionName"/>
+        <result column="session_start_time"    property="sessionStartTime"/>
+        <result column="open_sale_time"        property="openSaleTime"/>
+        <result column="notify_before_minutes" property="notifyBeforeMinutes"/>
     </resultMap>
 
     <insert id="insertIgnore">
@@ -39,7 +50,7 @@
         SELECT ss.id, ss.user_id, ss.show_id, ss.notify_before_minutes,
                ss.notified_pre, ss.notified_open, ss.create_time, ss.update_time,
                s.id AS s_id, s.name AS s_name, s.poster_url AS s_poster_url,
-               s.venue AS s_venue, s.open_sale_time AS s_open_sale_time
+               s.venue AS s_venue
         FROM show_subscribe ss
         JOIN `show` s ON s.id = ss.show_id
         WHERE ss.user_id = #{userId}
@@ -52,46 +63,50 @@
     </select>
 
     <!--
-      性能：将 DATE_SUB(open_sale_time, INTERVAL ss.notify_before_minutes MINUTE) <= now
-      改写为 open_sale_time <= DATE_ADD(now, INTERVAL ss.notify_before_minutes MINUTE)；
-      并对 open_sale_time 加上 24h 窗口范围谓词，使 idx_open_sale_time 可用，
-      把扫描限制在 "未来 24h 内开售" 的 show 上(默认 notify_before_minutes 远小于 1440)。
-      若有大于 1440 的提醒需求,把下面的 1440 调大或改用 schema 冗余字段。
+      扫描"提前提醒":每个订阅 × 每个未来 24h 内开售的场次,过滤掉已通知的 (subscribe_id, session_id)。
+      LIMIT 500:防止单次扫描超大;按 (subscribe_id, open_sale_time) 排序便于 Java 端 groupingBy。
     -->
-    <select id="selectPendingPre" resultMap="SubscribeMap">
-        SELECT ss.id, ss.user_id, ss.show_id, ss.notify_before_minutes,
-               ss.notified_pre, ss.notified_open, ss.create_time, ss.update_time,
-               s.id AS s_id, s.name AS s_name, s.poster_url AS s_poster_url,
-               s.venue AS s_venue, s.open_sale_time AS s_open_sale_time
+    <select id="selectPendingPreBySession" resultMap="PendingNotifyMap">
+        SELECT ss.id AS subscribe_id,
+               ss.user_id, ss.show_id, ss.notify_before_minutes,
+               sh.name AS show_name,
+               sess.id AS session_id, sess.name AS session_name,
+               sess.start_time AS session_start_time, sess.open_sale_time AS open_sale_time
         FROM show_subscribe ss
-        JOIN `show` s ON s.id = ss.show_id
-        WHERE ss.notified_pre = 0
-          AND s.open_sale_time IS NOT NULL
-          AND s.open_sale_time &gt; #{now}
-          AND s.open_sale_time &lt;= DATE_ADD(#{now}, INTERVAL 1440 MINUTE)
-          AND s.open_sale_time &lt;= DATE_ADD(#{now}, INTERVAL ss.notify_before_minutes MINUTE)
-        LIMIT 200
+        JOIN `show` sh ON sh.id = ss.show_id
+        JOIN show_session sess ON sess.show_id = ss.show_id
+        LEFT JOIN show_subscribe_session_notify n
+               ON n.subscribe_id = ss.id AND n.session_id = sess.id
+        WHERE sess.open_sale_time IS NOT NULL
+          AND sess.open_sale_time &gt; #{now}
+          AND sess.open_sale_time &lt;= DATE_ADD(#{now}, INTERVAL 1440 MINUTE)
+          AND sess.open_sale_time &lt;= DATE_ADD(#{now}, INTERVAL ss.notify_before_minutes MINUTE)
+          AND (n.notified_pre IS NULL OR n.notified_pre = 0)
+        ORDER BY ss.id, sess.open_sale_time
+        LIMIT 500
     </select>
 
-    <select id="selectPendingOpen" resultMap="SubscribeMap">
-        SELECT ss.id, ss.user_id, ss.show_id, ss.notify_before_minutes,
-               ss.notified_pre, ss.notified_open, ss.create_time, ss.update_time,
-               s.id AS s_id, s.name AS s_name, s.poster_url AS s_poster_url,
-               s.venue AS s_venue, s.open_sale_time AS s_open_sale_time
+    <!--
+      扫描"开售":开售时间已到 24h 内、未通知的场次。
+      上限 24h 防止历史订阅在某场开售已久后突然补发(用户体验)。
+    -->
+    <select id="selectPendingOpenBySession" resultMap="PendingNotifyMap">
+        SELECT ss.id AS subscribe_id,
+               ss.user_id, ss.show_id, ss.notify_before_minutes,
+               sh.name AS show_name,
+               sess.id AS session_id, sess.name AS session_name,
+               sess.start_time AS session_start_time, sess.open_sale_time AS open_sale_time
         FROM show_subscribe ss
-        JOIN `show` s ON s.id = ss.show_id
-        WHERE ss.notified_open = 0
-          AND s.open_sale_time IS NOT NULL
-          AND s.open_sale_time &lt;= #{now}
-        LIMIT 200
+        JOIN `show` sh ON sh.id = ss.show_id
+        JOIN show_session sess ON sess.show_id = ss.show_id
+        LEFT JOIN show_subscribe_session_notify n
+               ON n.subscribe_id = ss.id AND n.session_id = sess.id
+        WHERE sess.open_sale_time IS NOT NULL
+          AND sess.open_sale_time &lt;= #{now}
+          AND sess.open_sale_time &gt; DATE_SUB(#{now}, INTERVAL 1440 MINUTE)
+          AND (n.notified_open IS NULL OR n.notified_open = 0)
+        ORDER BY ss.id, sess.open_sale_time
+        LIMIT 500
     </select>
-
-    <update id="markNotifiedPre">
-        UPDATE show_subscribe SET notified_pre = 1, update_time = NOW() WHERE id = #{id}
-    </update>
-
-    <update id="markNotifiedOpen">
-        UPDATE show_subscribe SET notified_open = 1, update_time = NOW() WHERE id = #{id}
-    </update>
 
 </mapper>

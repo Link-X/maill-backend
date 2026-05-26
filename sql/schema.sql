@@ -76,7 +76,6 @@ CREATE TABLE IF NOT EXISTS `show` (
     review_mode    TINYINT       NOT NULL DEFAULT 1 COMMENT '评价模式 0=无评价 1=所有可评 2=仅已观看',
     avg_rating     DECIMAL(3, 2) NOT NULL DEFAULT 0 COMMENT '平均评分,冗余统计',
     review_count   INT           NOT NULL DEFAULT 0 COMMENT '评价数,冗余统计',
-    open_sale_time DATETIME               DEFAULT NULL COMMENT '开售时间,用于开售提醒触发',
     extend         JSON                   DEFAULT NULL COMMENT '扩展字段（如预售/退改规则/时长/适宜年龄），约定见前端文档；不参与 WHERE/索引',
     create_time    DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
     update_time    DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -85,8 +84,7 @@ CREATE TABLE IF NOT EXISTS `show` (
     KEY idx_name           (name)           COMMENT '搜索: name LIKE xxx%',
     KEY idx_venue          (venue)          COMMENT '搜索: venue LIKE xxx%',
     KEY idx_category_id    (category_id)    COMMENT '按分类筛选',
-    KEY idx_city_code      (city_code)      COMMENT '按城市筛选',
-    KEY idx_open_sale_time (open_sale_time) COMMENT '开售提醒定时扫描'
+    KEY idx_city_code      (city_code)      COMMENT '按城市筛选'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='演出表';
 
 -- 4. 演出场次表
@@ -334,13 +332,26 @@ CREATE TABLE IF NOT EXISTS show_subscribe (
     user_id               BIGINT   NOT NULL COMMENT '用户ID',
     show_id               BIGINT   NOT NULL COMMENT '演出ID',
     notify_before_minutes INT      NOT NULL DEFAULT 10 COMMENT '提前提醒分钟数',
-    notified_pre          TINYINT  NOT NULL DEFAULT 0 COMMENT '已推送提前提醒:0=否 1=是',
-    notified_open         TINYINT  NOT NULL DEFAULT 0 COMMENT '已推送开售:0=否 1=是',
+    notified_pre          TINYINT  NOT NULL DEFAULT 0 COMMENT '历史字段,已弃用(按场次跟踪在 show_subscribe_session_notify)',
+    notified_open         TINYINT  NOT NULL DEFAULT 0 COMMENT '历史字段,已弃用(按场次跟踪在 show_subscribe_session_notify)',
     create_time           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     update_time           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     UNIQUE KEY uk_user_show (user_id, show_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='演出开售提醒订阅';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='演出开售提醒订阅(用户订阅整个演出,系统按演出的每个场次分别推送)';
+
+-- 订阅 × 场次推送跟踪表:订阅维度仍是"演出",但提醒按"场次"展开,本表跟踪
+-- "某个订阅在某个场次的提前提醒/开售提醒"是否已推送,保证按场次幂等。
+-- 同一演出多场次场景下,每场各自触发各自的提醒,不会因为旧的"演出级 notified_pre"漏掉后续场次。
+CREATE TABLE IF NOT EXISTS show_subscribe_session_notify (
+    subscribe_id  BIGINT   NOT NULL COMMENT '订阅 ID(关联 show_subscribe.id)',
+    session_id    BIGINT   NOT NULL COMMENT '场次 ID(关联 show_session.id)',
+    notified_pre  TINYINT  NOT NULL DEFAULT 0 COMMENT '已推送提前提醒:0=否 1=是',
+    notified_open TINYINT  NOT NULL DEFAULT 0 COMMENT '已推送开售提醒:0=否 1=是',
+    update_time   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (subscribe_id, session_id),
+    KEY idx_session (session_id) COMMENT '场次删除时反查清理'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='订阅×场次推送状态';
 
 -- ------------------------------------------------------------
 -- 消息主表

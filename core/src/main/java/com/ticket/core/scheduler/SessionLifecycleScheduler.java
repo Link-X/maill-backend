@@ -7,6 +7,7 @@ import com.ticket.core.mapper.ShowSessionMapper;
 import com.ticket.core.service.SeatStructureCache;
 import com.ticket.core.service.SeatInventoryService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -28,6 +29,7 @@ import java.util.List;
  */
 @Slf4j
 @Component
+@ConditionalOnProperty(name = "scheduler.enabled", havingValue = "true")
 public class SessionLifecycleScheduler {
 
     private final ShowSessionMapper showSessionMapper;

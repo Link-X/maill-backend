@@ -10,3 +10,9 @@ mybatis:
   mapper-locations: classpath:mapper/*.xml
   configuration:
     map-underscore-to-camel-case: true
+
+# core 包中的定时任务集中开关。所有 @Scheduled 都加了 @ConditionalOnProperty 看这个键,
+# 默认只在 user 应用启用,避免多 JVM 重复触发(消息洪水、状态流转重跑等)。
+# 想换成 admin 跑,改这里设 false,在 admin 的 yml 里设 true 即可。
+scheduler:
+  enabled: true

@@ -3,6 +3,7 @@ package com.ticket.core.scheduler;
 import com.ticket.common.constant.RedisKeys;
 import com.ticket.core.mapper.ArticleMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -23,6 +24,7 @@ import java.util.Map;
  */
 @Slf4j
 @Component
+@ConditionalOnProperty(name = "scheduler.enabled", havingValue = "true")
 public class ArticleViewFlushScheduler {
 
     private static final String LOCK_KEY = "article:view:flush:lock";

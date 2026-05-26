@@ -37,7 +37,6 @@ public class ShowController {
         show.setPosterUrl(req.getPosterUrl());
         show.setExtend(req.getExtend());
         show.setReviewMode(req.getReviewMode());
-        show.setOpenSaleTime(req.getOpenSaleTime());
         // status 由 service 强制为 1；id / createTime / updateTime 由 service 生成
         return Result.success(showService.create(show, req.getArtistIds(), req.getArtistRoles()));
     }
@@ -57,7 +56,6 @@ public class ShowController {
         show.setExtend(req.getExtend());
         show.setStatus(req.getStatus());
         show.setReviewMode(req.getReviewMode());
-        show.setOpenSaleTime(req.getOpenSaleTime());
         return Result.success(showService.update(show, req.getArtistIds(), req.getArtistRoles()));
     }
 

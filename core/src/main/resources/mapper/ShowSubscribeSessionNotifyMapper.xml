@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ticket.core.mapper.ShowSubscribeSessionNotifyMapper">
+
+    <insert id="batchUpsertNotifiedPre">
+        INSERT INTO show_subscribe_session_notify
+            (subscribe_id, session_id, notified_pre, notified_open, update_time)
+        VALUES
+        <foreach collection="pairs" item="p" separator=",">
+            (#{p.subscribeId}, #{p.sessionId}, 1, 0, NOW())
+        </foreach>
+        ON DUPLICATE KEY UPDATE notified_pre = 1, update_time = NOW()
+    </insert>
+
+    <insert id="batchUpsertNotifiedOpen">
+        INSERT INTO show_subscribe_session_notify
+            (subscribe_id, session_id, notified_pre, notified_open, update_time)
+        VALUES
+        <foreach collection="pairs" item="p" separator=",">
+            (#{p.subscribeId}, #{p.sessionId}, 0, 1, NOW())
+        </foreach>
+        ON DUPLICATE KEY UPDATE notified_open = 1, update_time = NOW()
+    </insert>
+
+</mapper>

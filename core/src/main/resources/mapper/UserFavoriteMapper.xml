@@ -25,7 +25,6 @@
             <result column="s_review_mode"  property="reviewMode"/>
             <result column="s_avg_rating"   property="avgRating"/>
             <result column="s_review_count" property="reviewCount"/>
-            <result column="s_open_sale_time" property="openSaleTime"/>
         </association>
     </resultMap>
 
@@ -55,7 +54,7 @@
                s.city_code AS s_city_code, ct.name AS s_city_name,
                s.address AS s_address, s.poster_url AS s_poster_url, s.venue AS s_venue,
                s.status AS s_status, s.review_mode AS s_review_mode, s.avg_rating AS s_avg_rating,
-               s.review_count AS s_review_count, s.open_sale_time AS s_open_sale_time
+               s.review_count AS s_review_count
         FROM user_favorite uf
         LEFT JOIN `show` s ON s.id = uf.show_id
         LEFT JOIN category c  ON c.id   = s.category_id

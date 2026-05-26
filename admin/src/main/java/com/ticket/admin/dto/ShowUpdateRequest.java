@@ -36,8 +36,6 @@ public class ShowUpdateRequest {
     @Min(value = 0) @Max(value = 2)
     private Integer reviewMode;
 
-    @Schema(description = "开售时间(null=立即可购)") private java.time.LocalDateTime openSaleTime;
-
     @Schema(description = "关联艺人 ID 列表(可空)") private java.util.List<Long> artistIds;
 
     @Schema(description = "艺人角色映射 {artistId: '主演'}", example = "{\"1\":\"主演\"}")
