@@ -20,7 +20,7 @@ public interface ShowArtistMapper {
     List<ShowArtist> selectByShowIds(@Param("showIds") List<Long> showIds);
 
     List<Long> selectShowIdsByArtistId(@Param("artistId") Long artistId,
-                                       @Param("page") Integer page,
+                                       @Param("offset") Integer offset,
                                        @Param("size") Integer size);
 
     int countShowsByArtistId(@Param("artistId") Long artistId);

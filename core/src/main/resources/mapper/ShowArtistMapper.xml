@@ -74,8 +74,8 @@
         SELECT show_id FROM show_artist
         WHERE artist_id = #{artistId}
         ORDER BY id DESC
-        <if test="page != null and size != null">
-            LIMIT #{size} OFFSET #{page}
+        <if test="offset != null and size != null">
+            LIMIT #{size} OFFSET #{offset}
         </if>
     </select>
 

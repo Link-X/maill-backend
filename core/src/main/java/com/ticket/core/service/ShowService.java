@@ -143,4 +143,21 @@ public class ShowService {
     public int count(String name, Long categoryId, String cityCode, String venue) {
         return showMapper.countByCondition(name, categoryId, cityCode, venue, 1);
     }
+
+    /**
+     * 按艺人查演出列表(VO 含 categoryName/cityName)。
+     * 用于艺人主页"参演演出"模块。
+     * 不返回 artists 字段(列表场景与 listPaged 保持一致,详情接口才带)。
+     */
+    public List<ShowVO> listByArtistId(Long artistId, int page, int size) {
+        int offset = (page - 1) * size;
+        List<Long> ids = showArtistMapper.selectShowIdsByArtistId(artistId, offset, size);
+        if (ids == null || ids.isEmpty()) return Collections.emptyList();
+        return showMapper.selectVOByIds(ids);
+    }
+
+    /** 按艺人统计演出总数(分页器用) */
+    public int countByArtistId(Long artistId) {
+        return showArtistMapper.countShowsByArtistId(artistId);
+    }
 }

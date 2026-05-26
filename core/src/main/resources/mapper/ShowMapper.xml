@@ -162,4 +162,23 @@
         </foreach>
     </select>
 
+    <!--
+      按 ID 批量取 VO,JOIN 出 categoryName / cityName。
+      用 FIELD(s.id, ...) 维持传入 ids 的顺序(否则 IN 默认按主键升序破坏排序意图)。
+    -->
+    <select id="selectVOByIds" resultMap="ShowVOResultMap">
+        SELECT <include refid="ColumnsAliased"/>,
+               c.name AS category_name, ct.name AS city_name
+        FROM `show` s
+        LEFT JOIN category c  ON c.id   = s.category_id
+        LEFT JOIN city     ct ON ct.code = s.city_code
+        WHERE s.id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+        ORDER BY FIELD(s.id,
+        <foreach collection="ids" item="id" separator=",">#{id}</foreach>
+        )
+    </select>
+
 </mapper>

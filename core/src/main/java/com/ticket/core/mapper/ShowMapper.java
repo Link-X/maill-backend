@@ -67,4 +67,10 @@ public interface ShowMapper {
      * 按 ID 列表批量查询演出（IN 查询，避免 N+1）
      */
     List<Show> selectByIds(@Param("ids") List<Long> ids);
+
+    /**
+     * 按 ID 列表批量查询演出 VO（含 categoryName / cityName）。
+     * 返回顺序按传入 ids 保持(用 ORDER BY FIELD)。
+     */
+    List<ShowVO> selectVOByIds(@Param("ids") List<Long> ids);
 }

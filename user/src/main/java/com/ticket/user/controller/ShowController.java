@@ -44,5 +44,17 @@ public class ShowController {
         return Result.success(showService.getVOById(id));
     }
 
+    @Operation(summary = "按艺人查演出列表",
+            description = "艺人主页\"参演演出\"模块用。按 show_artist 关联表的 id DESC(近期添加优先)分页返回。每条是 ShowVO，含 categoryName / cityName")
+    @SecurityRequirements({})
+    @GetMapping("/by-artist/{artistId}")
+    public Result<PageVO<ShowVO>> byArtist(
+            @Parameter(description = "艺人 ID") @PathVariable Long artistId,
+            @Parameter(description = "页码,从 1 开始") @RequestParam(defaultValue = "1") Integer page,
+            @Parameter(description = "每页条数 1~100") @RequestParam(defaultValue = "20") Integer size) {
+        List<ShowVO> list = showService.listByArtistId(artistId, page, size);
+        int total = showService.countByArtistId(artistId);
+        return Result.success(PageVO.of(total, list));
+    }
 
 }

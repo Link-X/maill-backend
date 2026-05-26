@@ -37,6 +37,11 @@ jwt:
   # token 过期时间(ms),默认 2 小时
   expire-ms: ${JWT_EXPIRE_MS:7200000}
 
+# 跨域允许的前端 origin(逗号分隔)。新前端端口请在这里追加,避免出现 CORS preflight 拒绝。
+# 生产环境用 application-prod.yml 中的 ${CORS_ALLOWED_ORIGINS} 环境变量注入。
+cors:
+  allowed-origins: http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:3000
+
 logging:
   level:
     com.ticket: DEBUG
