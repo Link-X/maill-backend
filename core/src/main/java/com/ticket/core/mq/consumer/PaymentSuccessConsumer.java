@@ -1,5 +1,6 @@
 package com.ticket.core.mq.consumer;
 
+import com.ticket.core.domain.entity.Ticket;
 import com.ticket.core.mq.config.RabbitMQConfig;
 import com.ticket.core.mq.event.PaymentSuccessEvent;
 import com.ticket.core.service.TicketService;
@@ -8,6 +9,7 @@ import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 @Slf4j
@@ -32,20 +34,30 @@ public class PaymentSuccessConsumer {
      */
     @RabbitListener(queues = RabbitMQConfig.TICKET_GENERATE_QUEUE)
     public void generateTickets(PaymentSuccessEvent event) {
+        log.info("[TICKET-CONSUME] received orderId={} orderNo={} userId={}",
+                event.getOrderId(), event.getOrderNo(), event.getUserId());
         String idempotentKey = "ticket:generate:idempotent:" + event.getOrderId();
         Boolean firstTime = redisTemplate.opsForValue()
                 .setIfAbsent(idempotentKey, "1", IDEMPOTENT_TTL_HOURS, TimeUnit.HOURS);
         if (!Boolean.TRUE.equals(firstTime)) {
-            log.warn("票券生成消息重复消费,跳过。orderNo={}", event.getOrderNo());
+            log.warn("[TICKET-CONSUME] duplicate, skip orderNo={}", event.getOrderNo());
             return;
         }
-        log.info("生成票券，orderNo={}", event.getOrderNo());
         try {
-            ticketService.generateTicketsForOrder(event.getOrderId(), event.getUserId());
+            List<Ticket> tickets = ticketService.generateTicketsForOrder(event.getOrderId(), event.getUserId());
+            // 关键防御:即使 ticketService 没抛异常,若返回空列表也视为失败,清键 + 抛异常让 MQ 重试。
+            // 之前的 bug:此处不检查返回值,空列表静默 ack,导致订单状态已支付但票不存在。
+            if (tickets == null || tickets.isEmpty()) {
+                redisTemplate.delete(idempotentKey);
+                throw new IllegalStateException(
+                        "票券生成返回空 orderId=" + event.getOrderId() + ",事务可能未就绪,触发重试");
+            }
+            log.info("[TICKET-CONSUME] done orderId={} ticketCount={}",
+                    event.getOrderId(), tickets.size());
         } catch (Exception e) {
-            // 业务失败时清除幂等键,允许 MQ 重试
             redisTemplate.delete(idempotentKey);
-            log.error("票券生成失败，orderNo={}", event.getOrderNo(), e);
+            log.error("[TICKET-CONSUME] fail orderId={} orderNo={} err={}",
+                    event.getOrderId(), event.getOrderNo(), e.getMessage(), e);
             throw e;
         }
     }
