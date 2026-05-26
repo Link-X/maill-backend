@@ -23,6 +23,8 @@ public enum ErrorCode {
     ORDER_EXPIRED(1006, "订单已过期"),
     SESSION_NOT_FOUND(1007, "场次不存在"),
     SHOW_NOT_FOUND(1008, "演出不存在"),
+    SESSION_NOT_ON_SALE(1014, "场次未开售"),
+    SESSION_ALREADY_ENDED(1015, "场次已结束"),
     RATE_LIMIT_EXCEEDED(1009, "系统繁忙，请稍后重试"),
     REFUND_TOO_CLOSE_TO_START(1010, "距演出开始不足1天，无法退款"),
     REFUND_ALL_TICKETS_USED(1011, "所有票券均已使用，无法退款"),

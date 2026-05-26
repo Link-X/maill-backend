@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.*;
 import jakarta.validation.Valid;
 import java.util.List;
 
-@Tag(name = "场次管理", description = "演出场次 CRUD + 发布开售。传 roomId 后端会自动从场地模板复制座位和价格区域到该场次")
+@Tag(name = "场次管理", description = "演出场次 CRUD。status 不在此修改,由定时任务在 openSaleTime/endTime 自动流转。传 roomId 后端会自动从场地模板复制座位和价格区域到该场次")
 @RestController
 @RequestMapping("/api/admin/session")
 public class SessionController {
@@ -24,7 +24,7 @@ public class SessionController {
         this.sessionService = sessionService;
     }
 
-    @Operation(summary = "创建场次", description = "传 roomId 时：后端从 Room 复制 rowCount/colCount 写入 show_session，并把座位模板和默认价格区域复制到该场次（用座位数回填 total_seats）；不传 roomId 则需另调 /seat/batch 与 /seat/area/save。status 强制为 0，开售用 /publish")
+    @Operation(summary = "创建场次", description = "传 roomId 时:后端从 Room 复制 rowCount/colCount 写入 show_session,并把座位模板和默认价格区域复制到该场次(用座位数回填 total_seats);不传 roomId 则需另调 /seat/batch 与 /seat/area/save。status 强制为 0,由定时任务在 openSaleTime 自动 warmup + 流转为销售中")
     @PostMapping("/create")
     public Result<ShowSession> createSession(@Valid @RequestBody SessionCreateRequest req) {
         ShowSession session = new ShowSession();
@@ -34,11 +34,12 @@ public class SessionController {
         session.setStartTime(req.getStartTime());
         session.setEndTime(req.getEndTime());
         session.setLimitPerUser(req.getLimitPerUser());
+        session.setOpenSaleTime(req.getOpenSaleTime());
         session.setExtend(req.getExtend());
         return Result.success(sessionService.create(session));
     }
 
-    @Operation(summary = "更新场次", description = "先读出原记录，仅覆盖允许更新的字段（name/startTime/endTime/limitPerUser/extend），防止前端漏传字段把后端管理的列清空。改 status 请用 /publish 接口")
+    @Operation(summary = "更新场次", description = "先读出原记录,仅覆盖允许更新的字段(name/startTime/endTime/limitPerUser/openSaleTime/extend),防止前端漏传字段把后端管理的列清空。status 不允许在此修改,由定时任务管理")
     @PutMapping("/update")
     public Result<ShowSession> updateSession(@Valid @RequestBody SessionUpdateRequest req) {
         ShowSession existing = sessionService.getById(req.getId());
@@ -49,6 +50,7 @@ public class SessionController {
         existing.setStartTime(req.getStartTime());
         existing.setEndTime(req.getEndTime());
         existing.setLimitPerUser(req.getLimitPerUser());
+        existing.setOpenSaleTime(req.getOpenSaleTime());
         existing.setExtend(req.getExtend());
         return Result.success(sessionService.update(existing));
     }
@@ -63,12 +65,5 @@ public class SessionController {
     @GetMapping("/list")
     public Result<List<ShowSession>> listSessions(@Parameter(description = "演出 ID") @RequestParam Long showId) {
         return Result.success(sessionService.listByShowId(showId));
-    }
-
-    @Operation(summary = "发布场次开售", description = "把 status 从 0 改为 1。建议先完成 /seat/warmup 把库存预热到 Redis 再发布，避免开售后用户立刻打到 DB 兜底逻辑")
-    @PutMapping("/{sessionId}/publish")
-    public Result<Void> publishSession(@Parameter(description = "场次 ID") @PathVariable Long sessionId) {
-        sessionService.publish(sessionId);
-        return Result.success();
     }
 }

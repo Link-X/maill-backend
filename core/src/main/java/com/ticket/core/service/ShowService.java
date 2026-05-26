@@ -27,15 +27,18 @@ public class ShowService {
     private final ShowArtistMapper showArtistMapper;
     private final ArtistMapper artistMapper;
     private final SearchSyncProducer searchSyncProducer;
+    private final com.ticket.core.cache.CacheInvalidationBroadcaster cacheBroadcaster;
 
     public ShowService(ShowMapper showMapper,
                        ShowArtistMapper showArtistMapper,
                        ArtistMapper artistMapper,
-                       SearchSyncProducer searchSyncProducer) {
+                       SearchSyncProducer searchSyncProducer,
+                       com.ticket.core.cache.CacheInvalidationBroadcaster cacheBroadcaster) {
         this.showMapper = showMapper;
         this.showArtistMapper = showArtistMapper;
         this.artistMapper = artistMapper;
         this.searchSyncProducer = searchSyncProducer;
+        this.cacheBroadcaster = cacheBroadcaster;
     }
 
     @Transactional
@@ -72,6 +75,8 @@ public class ShowService {
         }
         Show updated = showMapper.selectById(show.getId());
         updated.setArtists(showArtistMapper.selectArtistsByShowId(show.getId()));
+        // 广播到所有实例失效演出缓存
+        cacheBroadcaster.invalidateShow(show.getId());
         // 发送搜索同步事件：写 ES
         searchSyncProducer.sendAfterCommit(SearchSyncEvent.upsert("show", show.getId()));
         return updated;

@@ -31,6 +31,10 @@ public class SessionCreateRequest {
 
     @Schema(description = "每人限购数", example = "4") @Min(value = 1) private Integer limitPerUser;
 
+    @Schema(description = "开售时间;不传则定时任务可立即把场次流转为销售中(取决于是否在 end_time 之前)",
+            example = "2026-06-01T10:00:00")
+    private LocalDateTime openSaleTime;
+
     @Schema(description = "扩展 JSON 对象（如 preSaleLeadMinutes/notice）", example = "{\"preSaleLeadMinutes\":30}")
     private Map<String, Object> extend;
 }

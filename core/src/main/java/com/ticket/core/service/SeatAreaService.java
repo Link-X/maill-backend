@@ -1,5 +1,6 @@
 package com.ticket.core.service;
 
+import com.ticket.core.cache.CacheInvalidationBroadcaster;
 import com.ticket.core.domain.entity.SeatArea;
 import com.ticket.core.mapper.SeatAreaMapper;
 import org.springframework.stereotype.Service;
@@ -11,9 +12,11 @@ import java.util.List;
 public class SeatAreaService {
 
     private final SeatAreaMapper seatAreaMapper;
+    private final CacheInvalidationBroadcaster cacheBroadcaster;
 
-    public SeatAreaService(SeatAreaMapper seatAreaMapper) {
+    public SeatAreaService(SeatAreaMapper seatAreaMapper, CacheInvalidationBroadcaster cacheBroadcaster) {
         this.seatAreaMapper = seatAreaMapper;
+        this.cacheBroadcaster = cacheBroadcaster;
     }
 
     /**
@@ -26,6 +29,8 @@ public class SeatAreaService {
         if (!areas.isEmpty()) {
             seatAreaMapper.batchInsert(areas);
         }
+        // 广播到所有实例(含自己)失效价格缓存
+        cacheBroadcaster.invalidateAreas(sessionId);
     }
 
     /**

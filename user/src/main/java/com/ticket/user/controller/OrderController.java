@@ -60,19 +60,30 @@ public class OrderController {
     @RateLimit(type = LimitType.IP,     limit = 30,  window = 60, message = "IP 请求过于频繁，请稍后再试")
     @RateLimit(type = LimitType.USER,   limit = 5,   window = 60, message = "操作太频繁，请稍后再试")
     @RateLimit(type = LimitType.GLOBAL, limit = 50,  window = 1,  message = "系统繁忙，请稍后重试")
-    @Operation(summary = "锁座 + 建单", description = "流程：限购校验 → Redis Lua 批量锁座（任一失败全量回滚） → 同步建单 → 发超时 MQ。直接返回完整订单（含演出/场次/座位/总价/过期时间），前端可显示倒计时。受多维度限流保护")
+    @Operation(summary = "锁座 + 建单", description = "流程:实时时间/状态校验 → 限购校验 → Redis Lua 批量锁座(任一失败全量回滚) → 同步建单 → 发超时 MQ。直接返回完整订单(含演出/场次/座位/总价/过期时间),前端可显示倒计时。受多维度限流保护")
     @PostMapping("/submit")
     public Result<OrderStatusResponse> submit(@Valid @RequestBody SubmitOrderRequest req) {
         Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
 
         var session = sessionService.getById(req.getSessionId());
         if (session == null) {
-            throw new BusinessException(ErrorCode.PARAM_ERROR, "场次不存在");
+            throw new BusinessException(ErrorCode.SESSION_NOT_FOUND);
+        }
+        // 实时校验场次时间和状态,兜底定时任务 1 分钟精度窗口
+        LocalDateTime now = LocalDateTime.now();
+        if (session.getEndTime() != null && !now.isBefore(session.getEndTime())) {
+            throw new BusinessException(ErrorCode.SESSION_ALREADY_ENDED);
+        }
+        if (session.getOpenSaleTime() != null && now.isBefore(session.getOpenSaleTime())) {
+            throw new BusinessException(ErrorCode.SESSION_NOT_ON_SALE);
+        }
+        if (session.getStatus() == null || session.getStatus() != 1) {
+            throw new BusinessException(ErrorCode.SESSION_NOT_ON_SALE);
         }
         int seatCount = req.getSeatIds().size();
         // 限购 TTL 跟随场次结束时间,保证 key 在场次结束前不过期,防止限购被绕过
         long ttlSeconds = session.getEndTime() != null
-                ? Math.max(0, ChronoUnit.SECONDS.between(LocalDateTime.now(), session.getEndTime()))
+                ? Math.max(0, ChronoUnit.SECONDS.between(now, session.getEndTime()))
                 : 0;
         boolean allowed = purchaseLimitService.checkAndIncrement(
                 req.getSessionId(), userId, session.getLimitPerUser(), seatCount, ttlSeconds);

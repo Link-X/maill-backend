@@ -10,7 +10,7 @@ import jakarta.validation.constraints.Size;
 import java.time.LocalDateTime;
 import java.util.Map;
 
-@Schema(description = "更新场次；不允许更新 status（开售用 /publish）/ totalSeats / rowCount / colCount / showId / roomId")
+@Schema(description = "更新场次;不允许直接更新 status(由定时任务流转) / totalSeats / rowCount / colCount / showId / roomId")
 @Data
 public class SessionUpdateRequest {
     @Schema(description = "场次 ID", example = "1", requiredMode = Schema.RequiredMode.REQUIRED)
@@ -22,5 +22,6 @@ public class SessionUpdateRequest {
     @Schema(description = "结束时间", example = "2026-06-01T22:00:00", requiredMode = Schema.RequiredMode.REQUIRED)
     @NotNull private LocalDateTime endTime;
     @Schema(description = "每人限购数", example = "4") @Min(value = 1) private Integer limitPerUser;
+    @Schema(description = "开售时间;不传则视为立即开售", example = "2026-06-01T10:00:00") private LocalDateTime openSaleTime;
     @Schema(description = "扩展 JSON 对象") private Map<String, Object> extend;
 }

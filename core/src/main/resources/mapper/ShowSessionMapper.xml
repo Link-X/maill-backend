@@ -7,7 +7,7 @@
     <!-- 修改 show_session 表字段时只改这里 -->
     <sql id="Columns">
         id, show_id, room_id, name, start_time, end_time, total_seats, limit_per_user, status,
-        row_count, col_count, extend, create_time, update_time
+        row_count, col_count, open_sale_time, extend, create_time, update_time
     </sql>
 
     <resultMap id="ShowSessionResultMap" type="com.ticket.core.domain.entity.ShowSession">
@@ -22,15 +22,16 @@
         <result column="status"        property="status"/>
         <result column="row_count"     property="rowCount"/>
         <result column="col_count"     property="colCount"/>
+        <result column="open_sale_time" property="openSaleTime"/>
         <result column="extend"        property="extend" typeHandler="com.ticket.core.mybatis.JsonMapTypeHandler"/>
         <result column="create_time"   property="createTime"/>
         <result column="update_time"   property="updateTime"/>
     </resultMap>
 
     <insert id="insert" parameterType="com.ticket.core.domain.entity.ShowSession" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO show_session (show_id, room_id, name, start_time, end_time, total_seats, limit_per_user, status, row_count, col_count, extend, create_time, update_time)
+        INSERT INTO show_session (show_id, room_id, name, start_time, end_time, total_seats, limit_per_user, status, row_count, col_count, open_sale_time, extend, create_time, update_time)
         VALUES (#{showId}, #{roomId}, #{name}, #{startTime}, #{endTime}, #{totalSeats}, #{limitPerUser}, #{status},
-                #{rowCount}, #{colCount}, #{extend,typeHandler=com.ticket.core.mybatis.JsonMapTypeHandler}, #{createTime}, #{updateTime})
+                #{rowCount}, #{colCount}, #{openSaleTime}, #{extend,typeHandler=com.ticket.core.mybatis.JsonMapTypeHandler}, #{createTime}, #{updateTime})
     </insert>
 
     <update id="update" parameterType="com.ticket.core.domain.entity.ShowSession">
@@ -45,6 +46,7 @@
             status         = #{status},
             row_count      = #{rowCount},
             col_count      = #{colCount},
+            open_sale_time = #{openSaleTime},
             extend         = #{extend,typeHandler=com.ticket.core.mybatis.JsonMapTypeHandler},
             update_time    = #{updateTime}
         WHERE id = #{id}
@@ -105,5 +107,40 @@
             #{id}
         </foreach>
     </select>
+
+    <!-- 待开售场次:status=0 且 (open_sale_time 为空或已到) 且 end_time 未到 -->
+    <select id="selectPendingPublish" resultMap="ShowSessionResultMap">
+        SELECT <include refid="Columns"/>
+        FROM show_session
+        WHERE status = 0
+          AND end_time &gt; #{now}
+          AND (open_sale_time IS NULL OR open_sale_time &lt;= #{now})
+        ORDER BY open_sale_time ASC
+        LIMIT 200
+    </select>
+
+    <!-- 已结束待流转场次:status IN (0,1) 且 end_time 已过 -->
+    <select id="selectPendingEnded" resultMap="ShowSessionResultMap">
+        SELECT <include refid="Columns"/>
+        FROM show_session
+        WHERE status IN (0, 1)
+          AND end_time &lt;= #{now}
+        LIMIT 500
+    </select>
+
+    <!-- 带乐观锁的状态流转 -->
+    <update id="updateStatusFrom">
+        UPDATE show_session
+        SET status = #{toStatus}, update_time = NOW()
+        WHERE id = #{id} AND status = #{fromStatus}
+    </update>
+
+    <!-- 批量结束已过期场次 -->
+    <update id="batchEndExpired">
+        UPDATE show_session
+        SET status = 2, update_time = NOW()
+        WHERE status IN (0, 1)
+          AND end_time &lt;= #{now}
+    </update>
 
 </mapper>

@@ -99,14 +99,17 @@ CREATE TABLE IF NOT EXISTS show_session (
     end_time       DATETIME     NOT NULL COMMENT '结束时间',
     total_seats    INT          NOT NULL DEFAULT 0 COMMENT '总座位数',
     limit_per_user INT          NOT NULL DEFAULT 1 COMMENT '每用户限购数量',
-    status         INT          NOT NULL DEFAULT 0 COMMENT '状态: 0=未开放, 1=销售中, 2=已结束, 3=已预热',
+    status         INT          NOT NULL DEFAULT 0 COMMENT '状态: 0=未开放, 1=销售中, 2=已结束',
     row_count      INT          NOT NULL DEFAULT 0 COMMENT '座位网格行数',
     col_count      INT          NOT NULL DEFAULT 0 COMMENT '座位网格列数',
+    open_sale_time DATETIME              DEFAULT NULL COMMENT '开售时间;NULL 表示无需等待,定时任务可立即流转为销售中',
     extend         JSON                  DEFAULT NULL COMMENT '扩展字段（如开售提前N分钟/特殊提示），不参与 WHERE/索引',
     create_time    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     update_time    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
-    KEY idx_show_id (show_id)
+    KEY idx_show_id (show_id),
+    KEY idx_status_open_sale (status, open_sale_time),
+    KEY idx_status_end_time (status, end_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='演出场次表';
 
 -- 5. 座位表

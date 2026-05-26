@@ -19,5 +19,5 @@ public class SessionListRequest {
     @NotNull @Min(value = 1) @Max(value = 100) private Integer size;
     @Schema(description = "起始时间过滤（startTime ≥ 此值）", example = "2026-06-01T00:00:00") private LocalDateTime startTime;
     @Schema(description = "结束时间过滤", example = "2026-12-31T23:59:59") private LocalDateTime endTime;
-    @Schema(description = "状态过滤 0=未开放 1=销售中 2=已结束 3=已预热", example = "1") private Integer status;
+    @Schema(description = "状态过滤 0=未开放 1=销售中 2=已结束", example = "1") private Integer status;
 }

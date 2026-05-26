@@ -13,10 +13,6 @@ import com.ticket.core.domain.vo.SeatColVO;
 import com.ticket.core.domain.vo.SeatRowVO;
 import com.ticket.core.domain.vo.SeatSectionVO;
 import com.ticket.core.domain.vo.SessionSeatResponse;
-import com.ticket.core.mapper.CityMapper;
-import com.ticket.core.mapper.SeatAreaMapper;
-import com.ticket.core.mapper.SeatMapper;
-import com.ticket.core.mapper.ShowMapper;
 import com.ticket.core.mapper.ShowSessionMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -40,27 +36,18 @@ import java.util.Map;
 public class SessionService {
 
     private final ShowSessionMapper showSessionMapper;
-    private final ShowMapper showMapper;
-    private final SeatMapper seatMapper;
-    private final SeatAreaMapper seatAreaMapper;
     private final SeatInventoryService inventoryService;
     private final RoomService roomService;
-    private final CityMapper cityMapper;
+    private final SeatStructureCache structureCache;
 
     public SessionService(ShowSessionMapper showSessionMapper,
-                          ShowMapper showMapper,
-                          SeatMapper seatMapper,
-                          SeatAreaMapper seatAreaMapper,
                           SeatInventoryService inventoryService,
                           RoomService roomService,
-                          CityMapper cityMapper) {
+                          SeatStructureCache structureCache) {
         this.showSessionMapper = showSessionMapper;
-        this.showMapper = showMapper;
-        this.seatMapper = seatMapper;
-        this.seatAreaMapper = seatAreaMapper;
         this.inventoryService = inventoryService;
         this.roomService = roomService;
-        this.cityMapper = cityMapper;
+        this.structureCache = structureCache;
     }
 
     /**
@@ -129,26 +116,21 @@ public class SessionService {
     }
 
     /**
-     * 发布场次开售（status 0 → 1）
+     * 场次完整座位图与价格区域 + 演出/城市概要信息。
+     * 结构数据(座位/价格/场次/演出/城市)走本地缓存,避免热门场次刷新打 DB。
+     * 座位 status 语义:
+     *  - 场次 status=1(销售中):走 Redis 实时(0=可售 1=已锁 2=已售)
+     *  - 场次 status!=1(未开放/已结束):统一返回 -1,前端按整体不可点渲染
+     * 空格子(rowCount×colCount 中没有座位)以 type=0 占位
      */
-    public void publish(Long sessionId) {
+    public SessionSeatResponse getSeatSection(Long sessionId) {
+        // session 直查 DB(单行主键查询,毫秒级),不进缓存,保证 status 多实例间一致
         ShowSession session = showSessionMapper.selectById(sessionId);
         if (session == null) {
             throw new BusinessException(ErrorCode.PARAM_ERROR, "场次不存在");
         }
-        session.setStatus(1);
-        showSessionMapper.update(session);
-    }
-
-    /**
-     * 场次完整座位图与价格区域 + 演出/城市概要信息。
-     * - 座位 status 从 Redis 实时读取
-     * - 空格子（rowCount×colCount 中没有座位）以 type=0 占位
-     */
-    public SessionSeatResponse getSeatSection(Long sessionId) {
-        ShowSession session = showSessionMapper.selectById(sessionId);
-        List<SeatArea> areas = seatAreaMapper.selectBySessionId(sessionId);
-        List<Seat> seats = seatMapper.selectBySessionId(sessionId);
+        List<SeatArea> areas = structureCache.getAreas(sessionId);
+        List<Seat> seats = structureCache.getSeats(sessionId);
 
         int rowCount = session.getRowCount() != null ? session.getRowCount() : 0;
         int colCount = session.getColCount() != null ? session.getColCount() : 0;
@@ -160,9 +142,10 @@ public class SessionService {
             seatIds.add(seat.getId());
         }
 
-        Map<Long, Integer> statusMap = seatIds.isEmpty()
-                ? new HashMap<>()
-                : inventoryService.batchGetSeatStatus(sessionId, seatIds);
+        boolean onSale = session.getStatus() != null && session.getStatus() == 1;
+        Map<Long, Integer> statusMap = (onSale && !seatIds.isEmpty())
+                ? inventoryService.batchGetSeatStatus(sessionId, seatIds)
+                : new HashMap<>();
 
         List<AreaPriceVO> areaPriceList = new ArrayList<>();
         for (SeatArea area : areas) {
@@ -192,7 +175,7 @@ public class SessionService {
                     colVO.setSeatName(seat.getSeatName());
                     colVO.setType(seat.getType());
                     colVO.setAreaId(seat.getAreaId());
-                    colVO.setStatus(statusMap.getOrDefault(seat.getId(), 0));
+                    colVO.setStatus(onSale ? statusMap.getOrDefault(seat.getId(), 0) : -1);
                 }
                 columns.add(colVO);
             }
@@ -214,7 +197,7 @@ public class SessionService {
         response.setSeatSection(seatSection);
 
         if (session.getShowId() != null) {
-            Show show = showMapper.selectById(session.getShowId());
+            Show show = structureCache.getShow(session.getShowId());
             if (show != null) {
                 response.setShowId(show.getId());
                 response.setShowName(show.getName());
@@ -223,7 +206,7 @@ public class SessionService {
                 response.setShowCityCode(show.getCityCode());
                 response.setShowPosterUrl(show.getPosterUrl());
                 if (show.getCityCode() != null) {
-                    City city = cityMapper.selectByCode(show.getCityCode());
+                    City city = structureCache.getCity(show.getCityCode());
                     if (city != null) {
                         response.setShowCityName(city.getName());
                     }

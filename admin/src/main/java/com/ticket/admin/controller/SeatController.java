@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.*;
 import jakarta.validation.Valid;
 import java.util.List;
 
-@Tag(name = "座位（场次维度）", description = "不走场地模板（手动模式）时使用：直接给特定 sessionId 批量建座位、设价格、预热 Redis 库存。走模板路径时只需调 /warmup")
+@Tag(name = "座位（场次维度）", description = "不走场地模板(手动模式)时使用:直接给特定 sessionId 批量建座位、设价格。开售由定时任务自动 warmup,/warmup 接口仅作为改价/改座位后的应急覆盖")
 @RestController
 @RequestMapping("/api/admin/seat")
 public class SeatController {
@@ -60,8 +60,8 @@ public class SeatController {
         return Result.success(seatAreaService.getAreasBySession(sessionId));
     }
 
-    @Operation(summary = "预热场次库存到 Redis",
-            description = "把该场次所有可售座位 ID 写入 Redis Set、座位详情写 Hash、区域价格写 Hash。预热完成后还需调 /api/admin/session/{id}/publish 才正式开售")
+    @Operation(summary = "预热场次库存到 Redis(应急接口)",
+            description = "正常流程由定时任务在 openSaleTime 自动预热,无需手动调用。仅当管理员修改了价格/座位后需要立即覆盖 Redis 数据时使用。把该场次所有可售座位 ID 写入 Redis Set、区域价格写 Hash")
     @PostMapping("/warmup/{sessionId}")
     public Result<Void> warmupSeats(@Parameter(description = "场次 ID") @PathVariable Long sessionId) {
         List<Seat> seats = adminSeatService.listBySession(sessionId);

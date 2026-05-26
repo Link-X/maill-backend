@@ -16,9 +16,11 @@ public class ShowSession {
     @Schema(description = "结束时间", example = "2026-06-01T22:00:00") private LocalDateTime endTime;
     @Schema(description = "总座位数（由后端从 Room 自动算）", example = "400") private Integer totalSeats;
     @Schema(description = "每人限购数", example = "4") private Integer limitPerUser;
-    @Schema(description = "状态 0=未开放 1=销售中 2=已结束 3=已预热", example = "1") private Integer status;
+    @Schema(description = "状态 0=未开放 1=销售中 2=已结束", example = "1") private Integer status;
     @Schema(description = "座位网格行数") private Integer rowCount;
     @Schema(description = "座位网格列数") private Integer colCount;
+    @Schema(description = "开售时间;NULL 表示无需等待,定时任务可立即流转为销售中", example = "2026-06-01T10:00:00")
+    private LocalDateTime openSaleTime;
     @Schema(description = "扩展字段 JSON 对象") private Map<String, Object> extend;
     @Schema(description = "创建时间") private LocalDateTime createTime;
     @Schema(description = "更新时间") private LocalDateTime updateTime;

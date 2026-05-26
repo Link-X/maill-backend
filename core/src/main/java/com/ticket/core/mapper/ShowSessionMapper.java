@@ -64,4 +64,27 @@ public interface ShowSessionMapper {
                        @Param("rowCount") Integer rowCount,
                        @Param("colCount") Integer colCount,
                        @Param("totalSeats") Integer totalSeats);
+
+    /**
+     * 查询待开售场次：status=0 且 (open_sale_time IS NULL OR open_sale_time <= now) 且 end_time > now
+     * 供定时任务批量取出后逐个校验座位/价格 + warmup + 流转 status
+     */
+    List<ShowSession> selectPendingPublish(@Param("now") LocalDateTime now);
+
+    /**
+     * 查询已结束待流转场次：status IN (0,1) 且 end_time <= now
+     */
+    List<ShowSession> selectPendingEnded(@Param("now") LocalDateTime now);
+
+    /**
+     * 带乐观锁的状态流转。fromStatus 不匹配时不更新,返回 0
+     */
+    int updateStatusFrom(@Param("id") Long id,
+                         @Param("fromStatus") Integer fromStatus,
+                         @Param("toStatus") Integer toStatus);
+
+    /**
+     * 批量把 status IN (0,1) 且 end_time <= now 的场次置为 2(已结束)
+     */
+    int batchEndExpired(@Param("now") LocalDateTime now);
 }
