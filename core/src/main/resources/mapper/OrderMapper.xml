@@ -163,4 +163,15 @@
         </where>
     </select>
 
+    <!-- 评价权限校验：用户在该演出下是否存在已观看订单(已支付/部分退款) -->
+    <select id="existsCompletedByUserAndShow" resultType="int">
+        SELECT COUNT(1)
+        FROM `order` o
+        JOIN show_session ss ON ss.id = o.session_id
+        WHERE o.user_id = #{userId}
+          AND ss.show_id = #{showId}
+          AND o.status IN (1, 5)
+        LIMIT 1
+    </select>
+
 </mapper>

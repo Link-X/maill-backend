@@ -14,4 +14,8 @@ public interface ShowReviewReportMapper {
     int countByStatus(@Param("status") Integer status);
     int updateHandle(@Param("id") Long id, @Param("status") Integer status,
                      @Param("handlerId") Long handlerId, @Param("handledAt") LocalDateTime handledAt);
+
+    /** 同一举报人对同一评论是否已举报过(防重复举报) */
+    int countByReporterAndReview(@Param("reporterId") Long reporterId,
+                                 @Param("reviewId") Long reviewId);
 }

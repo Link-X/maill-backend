@@ -44,7 +44,8 @@ public enum ErrorCode {
     REVIEW_DISABLED(1092, "该演出未开放评价"),
     REVIEW_PARENT_NOT_FOUND(1093, "回复的评论不存在"),
     REVIEW_RATING_REQUIRED(1094, "请填写评分"),
-    REVIEW_DELETE_FORBIDDEN(1095, "无权删除该评价");
+    REVIEW_DELETE_FORBIDDEN(1095, "无权删除该评价"),
+    REVIEW_REPORT_DUPLICATED(1096, "你已举报过该评价");
 
     private final int code;
     private final String message;

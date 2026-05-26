@@ -16,6 +16,10 @@ spring:
     port: 5672
     username: guest
     password: guest
+    # Publisher Confirm：消息到达 Exchange 时 broker 回调；nack 即视为投递失败
+    publisher-confirm-type: correlated
+    # Publisher Returns：消息到达 Exchange 但路由不到 Queue 时回调；配合 mandatory=true 生效
+    publisher-returns: true
     listener:
       simple:
         retry:

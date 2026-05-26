@@ -1,6 +1,9 @@
 package com.ticket.core.mq.config;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.core.*;
+import org.springframework.amqp.rabbit.connection.ConnectionFactory;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
 import org.springframework.context.annotation.Bean;
@@ -9,6 +12,7 @@ import org.springframework.context.annotation.Configuration;
 import java.util.HashMap;
 import java.util.Map;
 
+@Slf4j
 @Configuration
 public class RabbitMQConfig {
 
@@ -39,6 +43,38 @@ public class RabbitMQConfig {
     @Bean
     public MessageConverter messageConverter() {
         return new Jackson2JsonMessageConverter();
+    }
+
+    /**
+     * 自定义 RabbitTemplate：开启 mandatory + Publisher Confirm + Returns 回调。
+     *
+     * 依赖 yml 配置：
+     *   spring.rabbitmq.publisher-confirm-type: correlated
+     *   spring.rabbitmq.publisher-returns: true
+     *
+     * 任一消息未到达 Exchange(nack) 或路由不到 Queue(returned) 都会写 ERROR 日志，
+     * 运维侧应基于该日志接告警。生产端要求资金/票券链路必须不能静默丢失。
+     */
+    @Bean
+    public RabbitTemplate rabbitTemplate(ConnectionFactory connectionFactory,
+                                         MessageConverter messageConverter) {
+        RabbitTemplate template = new RabbitTemplate(connectionFactory);
+        template.setMessageConverter(messageConverter);
+        template.setMandatory(true);
+        template.setConfirmCallback((correlationData, ack, cause) -> {
+            if (!ack) {
+                String id = correlationData != null ? correlationData.getId() : "null";
+                log.error("[MQ-CONFIRM] 消息未到达 Exchange, id={}, cause={}", id, cause);
+            }
+        });
+        template.setReturnsCallback(returned -> log.error(
+                "[MQ-RETURN] 路由失败 exchange={} routingKey={} replyCode={} replyText={} body={}",
+                returned.getExchange(),
+                returned.getRoutingKey(),
+                returned.getReplyCode(),
+                returned.getReplyText(),
+                returned.getMessage()));
+        return template;
     }
 
     /** 订单超时投递交换机 */

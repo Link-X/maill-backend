@@ -63,13 +63,14 @@ public class ReviewService {
         Integer mode = s.getReviewMode() == null ? REVIEW_MODE_ALL : s.getReviewMode();
         if (mode == REVIEW_MODE_NONE) return false;
         if (mode == REVIEW_MODE_ALL) return true;
-        // REVIEW_MODE_WATCHED: 必须有完成的订单
+        // REVIEW_MODE_WATCHED: 必须有归属本用户的已观看订单(已支付/部分退款)
         if (orderId == null) return false;
         Order o = orderMapper.selectById(orderId);
         if (o == null) return false;
         if (!o.getUserId().equals(userId)) return false;
-        // 简化:订单 status 在已支付/已核销/已完成均视为已观看(具体看 enum)
-        return true;
+        Integer st = o.getStatus();
+        // 已支付(1) 或 部分退款(5) 视为已观看；未支付/已取消/退款中/已退款均不允许
+        return st != null && (st == 1 || st == 5);
     }
 
     // ----- 发布 -----
@@ -123,9 +124,10 @@ public class ReviewService {
         Integer mode = s.getReviewMode() == null ? REVIEW_MODE_ALL : s.getReviewMode();
         if (mode == REVIEW_MODE_NONE) throw new BusinessException(ErrorCode.REVIEW_DISABLED);
         if (mode == REVIEW_MODE_WATCHED) {
-            // 简化:用户至少有一个已完成的订单(同 showId)即可。这里不强制 orderId 关联。
-            // 真实实现可查 OrderMapper by user+show;此处不引入新查询,直接放行。
-            // 严格起见,可以在此处抛 REVIEW_NO_PERMISSION;权衡后选放行。
+            // 必须在该 show 下持有有效票券(status=1 已支付 或 status=5 部分退款)
+            if (orderMapper.existsCompletedByUserAndShow(userId, parent.getShowId()) <= 0) {
+                throw new BusinessException(ErrorCode.REVIEW_NO_PERMISSION);
+            }
         }
         LocalDateTime now = LocalDateTime.now();
         ShowReview r = new ShowReview();
@@ -252,6 +254,10 @@ public class ReviewService {
     public ShowReviewReport report(Long userId, Long reviewId, String reason) {
         ShowReview r = reviewMapper.selectById(reviewId);
         if (r == null) throw new BusinessException(ErrorCode.REVIEW_NOT_FOUND);
+        // 幂等：同一用户对同一评论只能举报一次
+        if (reportMapper.countByReporterAndReview(userId, reviewId) > 0) {
+            throw new BusinessException(ErrorCode.REVIEW_REPORT_DUPLICATED);
+        }
         ShowReviewReport rep = new ShowReviewReport();
         rep.setReviewId(reviewId);
         rep.setReporterId(userId);

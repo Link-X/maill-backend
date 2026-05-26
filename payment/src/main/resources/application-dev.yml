@@ -16,6 +16,9 @@ spring:
     port: 5672
     username: guest
     password: guest
+    # Publisher Confirm + Returns：消息丢失告警链路（支付/退款资金消息必须不能静默丢失）
+    publisher-confirm-type: correlated
+    publisher-returns: true
     listener:
       simple:
         retry:

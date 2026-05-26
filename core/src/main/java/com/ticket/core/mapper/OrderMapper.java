@@ -111,4 +111,11 @@ public interface OrderMapper {
                               @Param("status") Integer status,
                               @Param("startTime") LocalDateTime startTime,
                               @Param("endTime") LocalDateTime endTime);
+
+    /**
+     * 校验用户是否拥有该演出的已观看订单(status=1 已支付 或 status=5 部分退款)。
+     * 用于 REVIEW_MODE_WATCHED 评价权限校验。
+     */
+    int existsCompletedByUserAndShow(@Param("userId") Long userId,
+                                     @Param("showId") Long showId);
 }

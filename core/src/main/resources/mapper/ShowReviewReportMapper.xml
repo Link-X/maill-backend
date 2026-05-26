@@ -51,4 +51,11 @@
         WHERE id = #{id}
     </update>
 
+    <!-- 防重复举报：同一举报人对同一评论是否已举报 -->
+    <select id="countByReporterAndReview" resultType="int">
+        SELECT COUNT(1) FROM show_review_report
+        WHERE reporter_id = #{reporterId} AND review_id = #{reviewId}
+        LIMIT 1
+    </select>
+
 </mapper>
