@@ -264,7 +264,8 @@ bash docs/seed-data.sh
 
 | 方法 | 路径 | 说明 | 登录 |
 |------|------|------|:----:|
-| POST | `/api/order/submit` | 锁座 + 建单，直接返回完整订单 | ✓ |
+| POST | `/api/order/submit` | 锁座 + 预生成 orderNo + 发建单 MQ,立即返回 `{orderNo, "PROCESSING"}` | ✓ |
+| GET  | `/api/order/createStatus` | 轮询异步建单状态(PROCESSING/SUCCESS/FAILED/NOT_FOUND) | ✓ |
 | POST | `/api/order/cancel` | 取消订单（未支付直接取消；已支付 / 部分退款则发起退款） | ✓ |
 | GET  | `/api/order/orderDetails` | 订单详情（仅限本人；含 showCityName / showAddress 等） | ✓ |
 | POST | `/api/order/refundTicket` | 单票退款（支持已支付 / 部分退款订单） | ✓ |
@@ -361,34 +362,59 @@ bash docs/seed-data.sh
 
 ---
 
-## 核心购票流程
+## 核心购票流程(异步建单)
 
 ```
-用户选座后提交
+用户选座后提交 — POST /api/order/submit
     │
-    ├─ @RateLimit 黑名单 / IP / 用户 / 全局限流（AOP，最先拦截）
-    ├─ 场次校验
-    ├─ Lua 原子限购检查（Redis）
-    ├─ Lua 批量锁座（任一失败全量回滚）
-    ├─ 同步建单（DB INSERT）
-    ├─ 发送超时消息到 RabbitMQ（TTL = 5 分钟）
-    └─ 直接返回完整订单信息（含演出 / 场次 / 座位 / 总价 / 倒计时）
+    ├─ @RateLimit 黑名单 / IP / 用户 / 全局限流(AOP,最先拦截)
+    ├─ 场次校验(status / openSaleTime / endTime)
+    ├─ 限购校验 + 扣减(Redis)
+    ├─ Lua 批量锁座(任一失败全量回滚)
+    ├─ 预生成 orderNo(雪花 ID)
+    ├─ 写 Redis pending key:order:create:pending:{orderNo} = "PROCESSING" (TTL 60s)
+    ├─ 发 OrderCreateMessage 到 order.create.queue
+    └─ 立即返回 { orderNo, status: "PROCESSING" }   (约 5ms)
                 │
-    ┌───────────┴───────────┐
-    │                       │
-用户在确认页点击支付      5 分钟内未支付
-    │                       │
-POST /api/payment/create  超时消息经死信路由
-    │                  至 order.cancel.queue
-    ├─ 创建支付记录         │
-    ├─ 订单状态 → 已支付    取消订单
-    └─ 发送支付成功事件     释放 Redis 库存
-              │             回滚限购计数
+                ├──────────────── (异步) ───────────────┐
+                │                                       │
+   前端用 orderNo 轮询                       OrderCreateConsumer
+   /api/order/createStatus 直到 SUCCESS/FAILED         消费消息
+                │                                       │
+                │                         ├─ 幂等:selectByOrderNo,
+                │                         │   存在直接返回
+                │                         ├─ 超卖兜底(DB)
+                │                         ├─ 加载座位 / 校验情侣座
+                │                         ├─ 计算总价(走 Redis)
+                │                         ├─ INSERT order + INSERT order_item(同事务)
+                │                         └─ afterCommit:
+                │                              consumeSeat() 消费座位
+                │                              sendTimeoutMessage() 发超时 MQ
+                │                                       │
+   ┌────────────┴────────────┐                          │
+   │                         │                          │
+SUCCESS                    FAILED                       │
+DB 命中 orderNo            Redis pending=FAILED:reason  │
+→ 返回完整订单详情         → 前端展示失败原因           │
+   │
+用户点支付 → POST /api/payment/create
+   │
+   ├─ 创建支付记录
+   ├─ 订单状态 → 已支付
+   └─ 发送支付成功事件(Fanout)
+              │
     ┌─────────┼──────────┐
     │         │          │
-生成票券   同步DB库存   发送通知
-（异步）   （异步）    （预留）
+ 生成票券  同步 DB    发送通知
+ (异步)    库存        (预留)
+
+   --- 用户 5 分钟未支付 ---
+   超时消息经死信路由 → order.cancel.queue → 取消订单 + 释放库存
 ```
+
+> **为什么异步**:`submit` 同步建单,平均 50-100ms,DB 写入是瓶颈。改成只同步锁座,建单丢给消费者,`submit` 返回降到 5ms。用户体感"占座成功"立即响应,单实例 QPS 上限从 ~500 提升到 ~2000+。
+>
+> **失败处理**:消费者遇业务异常(超卖兜底命中、价格丢失)— `OrderCommandService` 内部已经释放座位+退限购,消费者把 pending key 标 FAILED 后**不抛出**(避免 MQ 重试)。前端下次轮询读到 FAILED 显示原因。遇系统异常(DB 短暂不可用)— 抛出让 MQ 自动重试 3 次,用户期间看到 PROCESSING,最终 SUCCESS 或 FAILED。
 
 ---
 
@@ -429,6 +455,10 @@ POST /api/payment/create  超时消息经死信路由
 ## 消息队列设计
 
 ```
+异步建单(Direct):
+  order.create.exchange ──→ order.create.queue ──→ OrderCreateConsumer(INSERT order + items + 发超时 MQ)
+                              (内置 3 次重试;最终失败标记 Redis pending key 为 FAILED)
+
 订单超时（TTL + 死信）：
   order.timeout.exchange ──→ order.timeout.queue（TTL 5分钟）
                                       │ 到期

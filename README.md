@@ -262,7 +262,8 @@ Creates 1 venue template (20 × 20 seats, VIP front section), 5 shows, 15 sessio
 
 | Method | Path | Description | Auth |
 |--------|------|-------------|:----:|
-| POST | `/api/order/submit` | Lock seats + create order, returns full order immediately | ✓ |
+| POST | `/api/order/submit` | Lock seats + pre-gen orderNo + publish create-MQ, returns `{orderNo, "PROCESSING"}` immediately | ✓ |
+| GET  | `/api/order/createStatus` | Poll async order creation status (PROCESSING/SUCCESS/FAILED/NOT_FOUND) | ✓ |
 | POST | `/api/order/cancel` | Cancel order (unpaid: sync cancel; paid / partial-refund: initiate refund) | ✓ |
 | GET  | `/api/order/orderDetails` | Order detail (owner only; includes showCityName / showAddress) | ✓ |
 | POST | `/api/order/refundTicket` | Refund a single ticket (works on paid or partially-refunded orders) | ✓ |
@@ -359,36 +360,60 @@ Define the seat layout and default prices on a room once; specifying `roomId` wh
 
 ---
 
-## Core Booking Flow
+## Core Booking Flow (Async Order Creation)
 
 ```
-User submits seat selection
+User submits seat selection — POST /api/order/submit
     │
     ├─ @RateLimit blacklist / IP / user / global check (AOP, first to intercept)
-    ├─ Session validation
-    ├─ Lua atomic purchase-limit check (Redis)
+    ├─ Session validation (status / openSaleTime / endTime)
+    ├─ Purchase-limit check & increment (Redis)
     ├─ Lua batch seat lock (full rollback on any failure)
-    ├─ Synchronous order creation (DB INSERT)
-    ├─ Send timeout message to RabbitMQ (TTL = 5 min)
-    └─ Return full order info (show / session / seats / total / countdown)
+    ├─ Pre-generate orderNo (Snowflake)
+    ├─ Set Redis pending key: order:create:pending:{orderNo} = "PROCESSING" (TTL 60s)
+    ├─ Publish OrderCreateMessage to order.create.queue
+    └─ Return immediately { orderNo, status: "PROCESSING" }   (~5ms)
                 │
-    ┌───────────┴───────────┐
-    │                       │
-User clicks Pay on       No payment within 5 min
-  confirmation page          │
-    │                   Timeout message routed via DLX
-POST /api/payment/create to order.cancel.queue
-    │                       │
-    ├─ Create payment record Cancel order
-    ├─ Order status → PAID  Release Redis inventory
-    └─ Send payment event   Roll back purchase count
+                ├─────────────────── (Async) ──────────────────┐
+                │                                              │
+   Frontend polls /api/order/createStatus?orderNo=...   OrderCreateConsumer
+   every ~600ms until SUCCESS / FAILED                  consumes the message
+                │                                              │
+                │                                  ├─ Idempotency: selectByOrderNo,
+                │                                  │   if exists → return
+                │                                  ├─ Oversell safety check (DB)
+                │                                  ├─ Load seats, validate couple-seats
+                │                                  ├─ Compute total price (from Redis)
+                │                                  ├─ INSERT order + INSERT order_item (TX)
+                │                                  └─ afterCommit:
+                │                                       consumeSeat()
+                │                                       sendTimeoutMessage()
+                │                                              │
+   ┌────────────┴────────────┐                                 │
+   │                         │                                 │
+SUCCESS                    FAILED                              │
+DB hit on orderNo          Redis pending = FAILED:reason       │
+→ returns OrderStatusResponse  → frontend shows error          │
+   │
+User clicks Pay → POST /api/payment/create
+   │
+   ├─ Create payment record
+   ├─ Order status → PAID
+   └─ Send payment event (Fanout)
               │
     ┌─────────┼──────────┐
     │         │          │
 Generate   Sync DB    Send notification
 Tickets   inventory   (reserved)
 (async)    (async)
+
+   --- If user doesn't pay within 5 min ---
+   Timeout message routed via DLX → order.cancel.queue → cancel + release inventory
 ```
+
+> **Why async**: IF `submit`  synchronous  stuck at ~50-100ms per request (DB INSERT bottleneck). By only locking seats synchronously and offloading INSERT to a consumer, `submit` returns in ~5ms. Frontend feels "success" instantly, and per-instance QPS ceiling lifts from ~500 to ~2000+.
+>
+> **Failure handling**: If the consumer hits a business exception (seat already taken in oversell-safety check, area price missing) — `OrderCommandService` releases seats + rolls back purchase count + the consumer marks the pending key as FAILED. Frontend's next poll sees FAILED and shows the reason. If a system exception (DB unavailable) — the consumer rethrows so RabbitMQ retries (3 times default); the user sees PROCESSING and eventually SUCCESS or FAILED.
 
 ---
 
@@ -429,6 +454,10 @@ Order status: 1 (PAID) or 5 (PARTIAL_REFUND)
 ## Message Queue Design
 
 ```
+Async Order Creation (Direct):
+  order.create.exchange ──→ order.create.queue ──→ OrderCreateConsumer (INSERT order + items + send timeout MQ)
+                              (3-retry built-in; failure → marks Redis pending key as FAILED)
+
 Order Timeout (TTL + Dead Letter):
   order.timeout.exchange ──→ order.timeout.queue (TTL 5 min)
                                       │ expires
