@@ -10,7 +10,7 @@
 
 [English](README.md)
 
-面向千级持续 QPS + 万级抢票峰值场景设计的抢票系统后端,架构层面覆盖了核心模式(Redis Lua 原子锁座、本地缓存 + pub/sub 失效、异步建单、MQ 驱动订单超时、分布式调度、状态机乐观锁等),真正达到生产万级仍需横向扩展 + 库存分片。功能含演出管理、选座购票、Redis 库存、订单超时、Mock 支付、入场核验、部分退款、全文搜索、站内消息、评价、监控等。Maven 多模块架构,独立部署。
+面向千级持续 QPS + 万级抢票峰值场景设计的抢票系统后端,架构层面覆盖了核心模式(Redis Lua 原子锁座、本地缓存 + pub/sub 失效、异步建单、MQ 驱动订单超时、分布式调度、状态机乐观锁等),真正达到生产万级仍需横向扩展 + 库存分片。功能含演出管理、**混合售卖模式(选座 + 系统派座)**、Redis 库存、订单超时、Mock 支付、入场核验、部分退款、全文搜索、站内消息、评价、监控等。Maven 多模块架构,独立部署。
 
 > **配套前端仓库**：[Link-X/maill-frontend](https://github.com/Link-X/maill-frontend)
 
@@ -33,7 +33,11 @@
 - **演出评价**：一级评论 + 二级回复（`parent_id` 自关联）；评分仅一级且 1-5 星；图片晒图、点赞（去重 `uk_review_user`）、举报、管理端审核（隐藏/恢复/删除）；演出可配置 `review_mode`（无评价/所有可评/仅已观看）+ `avg_rating`/`review_count` 冗余统计
 - **统计报表**：管理端 `/api/admin/report/*` 提供 11 个聚合接口（概览/趋势/按演出/分类/城市/状态/时段/场次售罄率/用户/退款/取消率）；时间窗口支持 1d/7d/30d/90d 滚动或自定义；结果 Redis 5 分钟缓存，无需关心 N+1。订单表 `refund_amount` 累计、`cancel_reason` 区分用户/超时取消
 - **全文搜索**：Elasticsearch 8.x 异步索引演出/艺人/资讯三类文档；业务写操作发布 `search.sync.queue` 事件，`SearchSyncConsumer` 落 ES，`IndexInitializer` 启动时幂等建索引；ES 不可用时降级，不阻塞业务
-- **抢票核心(异步建单)**:`/api/order/submit` 同步只做"校验 + 限购 + Lua 批量锁座 + 预生成 orderNo + 发 MQ",立即返回(约 5ms)。真正 `INSERT order` 由 `OrderCreateConsumer` 异步消费,前端用 orderNo 轮询 `/api/order/createStatus` 直到 SUCCESS/FAILED。锁座与 DB 写入解耦,单实例 QPS 上限从几百提升到几千
+- **抢票核心(异步建单)**:`/api/order/submit/by-seats` 同步只做"校验 + 限购 + Lua 批量锁座 + 预生成 orderNo + 发 MQ",立即返回(约 5ms)。真正 `INSERT order` 由 `OrderCreateConsumer` 异步消费,前端用 orderNo 轮询 `/api/order/createStatus` 直到 SUCCESS/FAILED。锁座与 DB 写入解耦,单实例 QPS 上限从几百提升到几千
+- **混合售卖(选座/派座并存)**:`seat_area.sale_mode` 区域级配置 — 同一场次的不同区域可独立设为「用户选座」或「系统派座」(VIP 区让用户挑,看台区系统派,典型大型演唱会模式)。派座走 `/api/order/submit/by-area`,接受「区域 + 票种 + 数量」,后端同步原子扣库存 + 异步从池中 `ZPOPMIN` 派座 + 建单
+- **情侣座保护(5 层防御)**:派座 warmup 时按 `seat.type` 把单座与情侣对**物理隔离**为两个池 (`area:pool:single` / `area:pool:couple`),`ticketType=1` 取单座池、`ticketType=2` 取情侣对池,情侣对池 member 形如 `"leftId:rightId"`,ZPOPMIN 操作天然原子,**绝不可能把情侣对的一个派给单座用户**。配合录入成对约束、选座完整性校验、退款成对约束,共 5 层防御
+- **派座任务持久化 + 自愈**:派座流程「同步扣库存 → 异步派座 → 建单 → task=SUCCESS」涉及多个步骤跨 Redis + MySQL,中间状态全部落 `seat_allocation_task`,`task=SUCCESS` 与 `INSERT order` 在同一事务内原子提交;`SeatAllocationRecoveryScheduler` 每分钟扫超时 PENDING 任务,按 `allocated_seats` 是否为空区分回滚方式(仅补库存 / 补库存+还池),消费者崩溃也能恢复
+- **订单超时兜底扫描**:`OrderTimeoutScanScheduler` 每分钟扫 `expire_time < now-60s` 且 `status=0` 的订单,与 MQ 延迟队列双轨触发取消,即使 MQ 失败也能保证座位最终释放
 - **防超卖**:Redis Set 原子扣库存,DB 层二次校验兜底
 - **订单超时**:RabbitMQ TTL + 死信队列,5 分钟精准触发取消并释放库存
 - **异步事件**:支付成功后通过 RabbitMQ Fanout 并行触发票券生成、DB 库存同步、通知(预留)
@@ -83,6 +87,8 @@ maill-backend/
 │                  #   SubscribeNotifier(开售提醒,按场次按日合并)
 │                  #   SessionLifecycleScheduler(场次状态自动流转 0→1 + 0/1→2)
 │                  #   ArticleViewFlushScheduler(资讯浏览数 Redis → DB 回写)
+│                  #   SeatAllocationRecoveryScheduler(派座超时任务回滚 + 库存/池修复)
+│                  #   OrderTimeoutScanScheduler(订单超时兜底取消,MQ 失败也能释放座位)
 ├── admin/       # 管理端 REST API（端口 8081）+ Request DTO + AdminAuthInterceptor
 ├── user/        # 用户端 REST API（端口 8082）+ LoginCheckInterceptor
 ├── payment/     # 支付模块（端口 8083，预留）
@@ -99,9 +105,10 @@ maill-backend/
 | `SessionService` | Session CRUD + 发布开售 + 座位图聚合查询 |
 | `CategoryService` / `CityService` | 分类 / 城市（CityService 只读） |
 | `RoomService` | 场地模板 + copyToSession 复制座位/价格 |
-| `OrderCommandService` | 下单 / 取消 / 退款（事务边界） |
+| `OrderCommandService` | 下单 / 取消 / 退款(事务边界);拆三层 — 选座入口 / 派座入口 / 纯建单核心(`createOrderInternal` 走 `@Transactional` self 代理) |
 | `OrderQueryService` | 单条 / 批量订单查询 + OrderStatusResponse 装配（含批量预取，避免 N+1） |
-| `SeatInventoryService` / `PurchaseLimitService` | Redis 库存与限购 |
+| `SeatInventoryService` / `PurchaseLimitService` | Redis 库存与限购(选座的 SET+lock + 派座的 stock 计数器与 single/couple 池) |
+| `SeatAllocationService` | 派座两段式原语:`reserveStock`(原子扣库存) + `allocate`(ZPOPMIN 取池);情侣对池天然成对 |
 | `ArtistService` / `ArticleService` / `ArticleCategoryService` / `BannerService` | 艺人 / 资讯 / 资讯分类 / Banner（带 ES 同步） |
 | `FavoriteService` / `SubscribeService` | 收藏分组 + 订阅开售提醒 |
 | `MessageService` | 站内信单发 / 广播 / 已读 / 删除 |
@@ -174,198 +181,12 @@ bash docs/seed-data.sh
 
 ---
 
-## API 概览
-
-> **详细字段、请求体、返回结构、错误码** 见 Swagger UI（启动服务后访问）：
-> - 用户端：http://localhost:8082/swagger-ui.html
-> - 管理端：http://localhost:8081/swagger-ui.html
->
-> 下表只给"有哪几类接口"的速览，避免文档与代码漂移。
-
-### 用户端（:8082）
-
-| 模块 | 路径前缀 | 主要功能 |
-|------|---------|---------|
-| 认证 | `/api/auth/*` | 注册 / 登录（返回 JWT） |
-| 分类 / 城市（首页 tabs） | `/api/category` `/api/city` | 启用列表，按 sort 排序 |
-| Banner | `/api/banner/list` | 首页轮播位（按时间窗口+排序过滤） |
-| 演出 | `/api/show/*` | 列表（name/categoryId/cityCode/venue 筛选）/ 详情，返回 ShowVO（含 categoryName / cityName / address / extend / artists / reviewMode / avgRating） |
-| 场次 | `/api/session/*` | 列表 / 座位图详情（含演出与城市地址） |
-| 艺人 | `/api/artist/*` | 列表 / 详情 / 关注 / 取关 / 关注状态 / 我的关注 |
-| 资讯 | `/api/article/*` `/api/article-category/list` | 列表（按分类/按艺人） / 详情 / 分类列表 |
-| 搜索 | `/api/search/*` | 多索引检索（演出/艺人/资讯/all）+ 历史记录（增删） |
-| 收藏 | `/api/favorite/*` | 收藏增删 / 跨分组移动 / 检查 / 列表 + 分组 CRUD |
-| 订阅 | `/api/subscribe/*` | 演出开售提醒订阅 / 取消 / 检查 / 列表 |
-| 消息 | `/api/message/*` | 站内信列表 / 未读数 / 标记已读 / 全部已读 / 删除 |
-| 评价 | `/api/review/*` | 一级评论发布 / 二级回复 / 列表 / 楼中楼 / 点赞 / 举报 / 我的 / 权限检查 |
-| 订单 | `/api/order/*` | 锁座建单 / 取消 / 单票退款 / 我的订单 / 订单详情 |
-| 支付 | `/api/payment/*` | 支付订单 |
-| 入场核验 | `/api/verify/*` | 二维码 / 票号核销 |
-| 文件上传 | `/api/upload/*` | 用户端晒图上传到 MinIO |
-
-### 管理端（:8081）
-
-| 模块 | 路径前缀 | 主要功能 |
-|------|---------|---------|
-| 鉴权 | `/api/admin/auth/*` | 管理员注册 / 登录（需 `ADMIN_INVITE_CODE`） |
-| 分类管理 | `/api/admin/category/*` | CRUD；删除被引用返回 1012 |
-| 城市（只读） | `/api/admin/city/list` | 演出表单下拉源；数据由 schema.sql seed |
-| 场地模板 | `/api/admin/room/*` | 场地 CRUD + 座位模板 + 默认价格区域 + `/template` 聚合 |
-| 文件上传 | `/api/admin/upload/image` | multipart 上传到 MinIO，返回外链 URL |
-| 演出 | `/api/admin/show/*` | Show CRUD；DTO 严格校验，支持 `reviewMode` / `openSaleTime` / `artistIds` / `artistRoles` 一次性维护演出与艺人关系 |
-| 场次 | `/api/admin/session/*` | Session CRUD + `/{id}/publish` 开售；传 roomId 自动复制座位 + 价格 |
-| 座位（手动模式） | `/api/admin/seat/*` | 不走场地模板时的座位批量 / 价格区域 / Redis 预热 |
-| 艺人 | `/api/admin/artist/*` | 艺人 CRUD + 上下架 |
-| 资讯分类 | `/api/admin/article-category/*` | 资讯分类 CRUD（被引用返回 1042，重名返回 1041） |
-| 资讯 | `/api/admin/article/*` | 草稿 / 发布 / 下架 / 列表 / 删除 |
-| Banner | `/api/admin/banner/*` | Banner CRUD + 上下架 + 排序 |
-| 消息 | `/api/admin/message/*` | 单发 / 广播 / 列表（推送站内信） |
-| 评价审核 | `/api/admin/review/*` | 列表（含被举报态） / 隐藏 / 恢复 / 删除 + 举报清单与处理 |
-| 订单管理 | `/api/admin/order/*` | 单查 / 列表（showId / sessionId / orderNo / status / 时间筛选） |
-| 监控 | `/api/admin/monitor/dashboard` | 场次座位实时统计（总数 / 可售 / 已售） |
-| **统计报表** | `/api/admin/report/*` | 11 个接口：概览 / 时间趋势 / 演出/分类/城市排行 / 状态&时段分布 / 场次售罄率 / 用户 / 退款 / 取消率（Redis 5min 缓存） |
-
----
-
-<!-- 旧的详细 API 表已替换为上方分组速览；具体字段以 Swagger UI 为准 -->
-
-<details>
-<summary>历史详细 API 表（已折叠，仅作参考）</summary>
-
-#### 认证
-
-| 方法 | 路径 | 说明 | 登录 |
-|------|------|------|:----:|
-| POST | `/api/auth/register` | 注册 | ✗ |
-| POST | `/api/auth/login` | 登录，返回 JWT | ✗ |
-
-#### 分类 / 城市（首页 tabs）
-
-| 方法 | 路径 | 说明 | 登录 |
-|------|------|------|:----:|
-| GET  | `/api/category/list` | 启用的分类列表，按 sort 排序 | ✗ |
-| GET  | `/api/city/list` | 启用的城市列表，按 sort 排序（30 个主要城市 seed） | ✗ |
-
-#### 演出
-
-| 方法 | 路径 | 说明 | 登录 |
-|------|------|------|:----:|
-| POST | `/api/show/list` | 演出列表（分页，支持 name / categoryId / cityCode / venue 筛选；item 返回 ShowVO，含 categoryName / cityName / address / extend） | ✗ |
-| GET  | `/api/show/{id}` | 演出详情（ShowVO，含 categoryName / cityName / address / extend） | ✗ |
-
-#### 场次
-
-| 方法 | 路径 | 说明 | 登录 |
-|------|------|------|:----:|
-| POST | `/api/session/list` | 场次列表（分页，支持 status / startTime / endTime 筛选） | ✗ |
-| POST | `/api/session/detail` | 场次座位图（含区域价格 + 实时可售状态 + 演出与城市地址信息） | ✗ |
-
-#### 订单
-
-| 方法 | 路径 | 说明 | 登录 |
-|------|------|------|:----:|
-| POST | `/api/order/submit` | 锁座 + 预生成 orderNo + 发建单 MQ,立即返回 `{orderNo, "PROCESSING"}` | ✓ |
-| GET  | `/api/order/createStatus` | 轮询异步建单状态(PROCESSING/SUCCESS/FAILED/NOT_FOUND) | ✓ |
-| POST | `/api/order/cancel` | 取消订单（未支付直接取消；已支付 / 部分退款则发起退款） | ✓ |
-| GET  | `/api/order/orderDetails` | 订单详情（仅限本人；含 showCityName / showAddress 等） | ✓ |
-| POST | `/api/order/refundTicket` | 单票退款（支持已支付 / 部分退款订单） | ✓ |
-| POST | `/api/order/list` | 我的订单（分页，支持 status / 日期范围筛选） | ✓ |
-
-#### 支付 & 核验
-
-| 方法 | 路径 | 说明 | 登录 |
-|------|------|------|:----:|
-| POST | `/api/payment/create` | 支付订单 | ✓ |
-| POST | `/api/verify/qr` | 二维码核验入场 | ✗ |
-| POST | `/api/verify/ticket` | 票号核验入场 | ✗ |
-
----
-
-### 管理端（:8081）
-
-#### 演出分类管理
-
-独立的 `category` 表，演出通过 `categoryId` 关联；删除被引用的分类会返回 `1012 CATEGORY_IN_USE`。
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET    | `/api/admin/category/list?status=&keyword=` | 分类列表，可按 status / keyword 前缀筛选 |
-| POST   | `/api/admin/category/create` | 新建分类（name 唯一，重名返回 1013） |
-| PUT    | `/api/admin/category/update` | 更新分类（status=0 即"禁用"，用户端列表不返回） |
-| DELETE | `/api/admin/category/{id}` | 删除分类（被引用时返回 1012） |
-
-#### 城市（只读）
-
-数据由 `schema.sql` seed，30 个主要城市，不开放 admin 写入。
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/admin/city/list?status=&keyword=` | 后台创建演出时下拉选源 |
-
-#### 场地模板（Room 管理）
-
-在 Room 上一次性定义座位布局和默认价格；创建场次时指定 `roomId`，座位和价格区域自动复制。
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/admin/room/create` | 创建场地 |
-| PUT  | `/api/admin/room/update` | 更新场地 |
-| GET  | `/api/admin/room/{id}` | 场地详情 |
-| GET  | `/api/admin/room/list` | 场地列表 |
-| POST | `/api/admin/room/seat/batch` | 保存场地座位模板（覆盖写） |
-| GET  | `/api/admin/room/seat/list?roomId=` | 场地座位模板列表 |
-| POST | `/api/admin/room/area/save` | 保存场地默认价格区域（覆盖写） |
-| GET  | `/api/admin/room/area/list?roomId=` | 场地默认价格区域列表 |
-| GET  | `/api/admin/room/template?roomId=` | **聚合查询**：一次返回 room + seats + areas，前端可直接渲染座位图 |
-
-#### 文件上传
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/admin/upload/image` | 上传图片到 MinIO（multipart/form-data；表单字段 `file`；可选 `dir`，默认 `misc`），返回完整可访问 URL |
-
-#### 演出 & 场次
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/admin/show/create` | 创建演出 |
-| PUT  | `/api/admin/show/update` | 更新演出 |
-| GET  | `/api/admin/show/{id}` | 演出详情 |
-| GET  | `/api/admin/show/list` | 演出列表 |
-| POST | `/api/admin/session/create` | 创建场次（传入 `roomId` 自动复制座位 + 价格） |
-| PUT  | `/api/admin/session/update` | 更新场次 |
-| GET  | `/api/admin/session/{id}` | 场次详情 |
-| GET  | `/api/admin/session/list?showId=` | 场次列表 |
-| PUT  | `/api/admin/session/{sessionId}/publish` | 发布场次开售 |
-
-#### 座位（手动创建——无场地模板时使用）
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/admin/seat/batch` | 批量创建座位 |
-| GET  | `/api/admin/seat/list?sessionId=` | 座位列表 |
-| POST | `/api/admin/seat/area/save` | 保存场次价格区域 |
-| GET  | `/api/admin/seat/area/list?sessionId=` | 场次价格区域列表 |
-| POST | `/api/admin/seat/warmup/{sessionId}` | 预热座位库存到 Redis |
-
-#### 订单 & 监控
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET  | `/api/admin/order/{id}` | 订单详情（原始 Order 实体） |
-| GET  | `/api/admin/order/query?orderNo=` | 按订单号查询 |
-| GET  | `/api/admin/order/{id}/items` | 订单明细（含座位） |
-| POST | `/api/admin/order/list` | **订单分页列表**，支持 showId / sessionId / orderNo / status / 时间范围筛选，返回与用户端同结构（含 show / city / tickets） |
-| GET  | `/api/admin/monitor/dashboard?sessionId=` | 实时座位统计（总数 / 可售 / 已售） |
-
-</details>
-
----
-
 ## 核心购票流程(异步建单)
 
+### 选座模式 — POST /api/order/submit/by-seats
+
 ```
-用户选座后提交 — POST /api/order/submit
+用户选座后提交 — POST /api/order/submit/by-seats
     │
     ├─ @RateLimit 黑名单 / IP / 用户 / 全局限流(AOP,最先拦截)
     ├─ 场次校验(status / openSaleTime / endTime)
@@ -416,6 +237,53 @@ DB 命中 orderNo            Redis pending=FAILED:reason  │
 >
 > **失败处理**:消费者遇业务异常(超卖兜底命中、价格丢失)— `OrderCommandService` 内部已经释放座位+退限购,消费者把 pending key 标 FAILED 后**不抛出**(避免 MQ 重试)。前端下次轮询读到 FAILED 显示原因。遇系统异常(DB 短暂不可用)— 抛出让 MQ 自动重试 3 次,用户期间看到 PROCESSING,最终 SUCCESS 或 FAILED。
 
+### 派座模式 — POST /api/order/submit/by-area
+
+```
+用户选区域+票种+数量 — POST /api/order/submit/by-area  { sessionId, areaId, ticketType, quantity }
+    │
+    ├─ @RateLimit 黑名单 / IP / 用户 / 全局限流
+    ├─ 场次校验
+    ├─ 限购校验 + 扣减(Redis;情侣对按 *2 算张数)
+    ├─ allocationService.reserveStock — 原子 DECR area:stock:{single|couple}(Lua)
+    │      └─ 校验区域 saleMode=2 + 票种存在;库存不足立即抛 STOCK_NOT_ENOUGH
+    ├─ 预生成 orderNo
+    ├─ INSERT seat_allocation_task = PENDING        ← 中间状态落库,scheduler 据此回滚
+    ├─ 写 Redis pending key
+    ├─ 发 OrderAllocateMessage 到 order.allocate.queue
+    └─ 立即返回 { orderNo, status: "PROCESSING" }
+                │
+                ├──────────────── (异步) ──────────────┐
+                │                                       │
+   前端用 orderNo 轮询                       OrderAllocateConsumer
+   /api/order/createStatus                            消费消息
+                │                                       │
+                │                         ├─ 幂等:DB 已有订单 → CAS task=SUCCESS + 删 pending + return
+                │                         ├─ task=SUCCESS/ROLLED_BACK → 短路返回或抛 BusinessException
+                │                         ├─ allocationService.allocate — Lua ZPOPMIN 池中前 N 个
+                │                         │       (single 池:member=seatId;couple 池:member="left:right")
+                │                         ├─ task.allocated_seats 立即落库(供 scheduler 区分回滚方式)
+                │                         ├─ self.createOrderInternal(@Transactional):
+                │                         │       INSERT order + items + 同事务内 task=SUCCESS
+                │                         └─ afterCommit:
+                │                              consumeAllocatedSeat() — SREM session:seats
+                │                              sendTimeoutMessage() — 发超时 MQ
+                │
+   ┌────────────┴────────────┐
+   │                         │
+SUCCESS                    FAILED
+DB 命中 orderNo            Redis pending=FAILED:reason
+→ 返回完整订单详情         → 前端展示失败原因
+   │
+   └─ 之后流程同选座模式(支付 → 票券 / 库存同步 / 通知)
+```
+
+> **为什么两段式扣库存**:抢购热路径只动 `area:stock` 计数器(原子 DECR),不去碰池子 ZPOPMIN,失败立即响应,极低开销;真正取座异步做。
+>
+> **情侣保护核心**:warmup 时按 `seat.type` 把单座(`type=1`)和情侣对(`type=2/3` 成对)**物理分到两个池**。单座池里**永远不会出现情侣座**,派单座的 ZPOPMIN 根本看不到情侣座 → 不可能派错。情侣对池的每个 member 就是"一对",ZPOPMIN 单 member 取出 = 一对座位原子取出,绝不可能拆散。
+>
+> **崩溃恢复**:派座中间状态由 `seat_allocation_task` 落库;`SeatAllocationRecoveryScheduler` 每分钟扫超过 2min 仍 PENDING 的任务,据 `allocated_seats` 是否为空选择"仅回滚库存"或"回滚库存+还池";消费者 INSERT 后崩溃也安全(`task=SUCCESS` 与 INSERT 同事务原子提交)。
+
 ---
 
 ## 退款流程
@@ -427,6 +295,7 @@ DB 命中 orderNo            Redis pending=FAILED:reason  │
     │       └─ 查询所有未使用票 → doRefund → 状态 → 退款中(3)
     │
     └─ 单票退款 POST /api/order/refundTicket
+            ├─ 情侣座单票退款拦截(必须整单退,保证成对) → 抛业务异常
             └─ 校验票状态未使用 → doRefund → 状态 → 退款中(3)
                         │
               MQ 消费者处理退款结果
@@ -436,6 +305,8 @@ DB 命中 orderNo            Redis pending=FAILED:reason  │
       仍有未退票             所有票已退
    状态 → 部分退款(5)      状态 → 已退款(4)
 ```
+
+> **释放分流**:`releaseSeatsByMode` 按每个 seat 所属区域的 `sale_mode` 自动选择释放路径 — 选座区:回 `session:seats` SET + 删 `seat:lock` + DECR 锁定计数;派座区:在此基础上额外把座位还回对应 `area:pool` + INCR `area:stock`。情侣对成对回 couple 池,绝不拆散。
 
 ---
 
@@ -455,9 +326,13 @@ DB 命中 orderNo            Redis pending=FAILED:reason  │
 ## 消息队列设计
 
 ```
-异步建单(Direct):
+异步建单 — 选座模式(Direct):
   order.create.exchange ──→ order.create.queue ──→ OrderCreateConsumer(INSERT order + items + 发超时 MQ)
                               (内置 3 次重试;最终失败标记 Redis pending key 为 FAILED)
+
+异步建单 — 派座模式(Direct):
+  order.allocate.exchange ──→ order.allocate.queue ──→ OrderAllocateConsumer
+                              (ZPOPMIN 取池 + INSERT order + task=SUCCESS 同事务;失败回滚库存+池)
 
 订单超时（TTL + 死信）：
   order.timeout.exchange ──→ order.timeout.queue（TTL 5分钟）
@@ -509,8 +384,9 @@ public Result<?> submit(...) { }
 | `city` | 城市（GB/T 行政区划代码，code 唯一）；seed 30 个主要城市，不开放写入 |
 | `show` | 演出；`category_id` / `city_code` 关联分类与城市；`address` 详细地址；`extend` JSON；`review_mode` 评价模式 + `avg_rating` / `review_count` 评分冗余；`open_sale_time` 开售时间；含 `idx_name` / `idx_venue` / `idx_category_id` / `idx_city_code` / `idx_open_sale_time` 索引 |
 | `show_session` | 场次；`room_id` 关联场地模板；含限购数 `limit_per_user`；`extend` JSON 扩展字段 |
-| `seat` | 座位底表，实时库存由 Redis 管理，支付后异步同步 status |
-| `seat_area` | 场次座位价格区域 |
+| `seat` | 座位底表(`type` 1=普通/2=情侣左/3=情侣右,`pair_seat_id` 互指),实时库存由 Redis 管理,支付后异步同步 status |
+| `seat_area` | 场次座位价格区域;`sale_mode`(1=选座/2=派座)、`single_total` / `couple_total`(派座统计)、`allocate_strategy`(派座策略) |
+| `seat_allocation_task` | 派座任务表(中间状态持久化);字段:`order_no` UNIQUE / `ticket_type` / `quantity` / `status`(0待派 1成功 2失败 3已回滚)/ `allocated_seats` CSV;`idx_status_create` 用于 scheduler 超时扫描 |
 | `order` | 订单；`refund_amount` 累计退款金额、`cancel_reason` 区分用户/超时取消；索引 `idx_status_expire` / `idx_create_time`（报表用） |
 | `order_item` | 订单行，含价格快照 |
 | `payment` | 支付记录 |
@@ -550,12 +426,16 @@ public Result<?> submit(...) { }
 
 | Key | 类型 | 说明 | TTL |
 |-----|------|------|-----|
-| `session:seats:{sessionId}` | Set | 可售座位 ID 集合 | 7 天 |
+| `session:seats:{sessionId}` | Set | 可售座位 ID 集合(选座+派座共用的"已售/未售真相源") | 7 天 |
 | `seat:info:{seatId}` | Hash | 座位详情（行 / 列 / 类型 / 区域） | 7 天 |
-| `seat:lock:{sessionId}:{seatId}` | String | 座位锁（value = userId） | 5 分钟 |
+| `seat:lock:{sessionId}:{seatId}` | String | 座位锁(选座模式,value = userId) | 5 分钟 |
 | `session:purchase:{sessionId}:{userId}` | String | 用户已购数量 | 7 天 |
-| `session:area:price:{sessionId}:{areaId}` | Hash | 区域价格缓存 | 7 天 |
+| `session:area:price:{sessionId}:{areaId}` | Hash | 区域价格 + 售卖模式配置(price/originPrice/saleMode/singleTotal/coupleTotal),`reserveStock` 直接读 | 7 天 |
 | `session:locked:{sessionId}` | String | 当前正在结算中（已锁座未支付）的座位数量 | 7 天 |
+| `area:stock:single:{sessionId}:{areaId}` | String | **派座模式** — 区域单座剩余张数(原子 DECRBY) | 7 天 |
+| `area:stock:couple:{sessionId}:{areaId}` | String | **派座模式** — 区域情侣对剩余对数 | 7 天 |
+| `area:pool:single:{sessionId}:{areaId}` | ZSet | **派座模式** — 区域单座池;score=row\*100000+col,ZPOPMIN 取靠前 N 个 | 7 天 |
+| `area:pool:couple:{sessionId}:{areaId}` | ZSet | **派座模式** — 区域情侣对池;member="leftId:rightId",取出 = 一对原子取出绝不拆散 | 7 天 |
 | `rate:global:{method}:{window}` | String | 全局限流计数 | 动态 |
 | `rate:user:{userId}:{method}:{window}` | String | 用户限流计数 | 动态 |
 | `rate:ip:{ip}:{method}:{window}` | String | IP 限流计数 | 动态 |
@@ -568,11 +448,14 @@ public Result<?> submit(...) { }
 
 | 问题 | 方案 |
 |------|------|
-| 超卖 | Redis Set `SREM` 原子扣库存 + DB 层二次校验兜底 |
-| 限购 | Lua 脚本原子 INCR + 阈值检查 |
+| 超卖(选座) | Redis Set `SREM` + 单座 SETNX 锁原子扣库存 + DB 层二次校验兜底 |
+| 超卖(派座) | 两段式 — 同步 `DECR area:stock` 原子扣计数,异步 `ZPOPMIN area:pool` 取座,Lua 内做"不足回滚" |
+| 情侣座保护 | warmup 时按 `type` 物理分池(single/couple),couple 池 member="left:right" 取出 = 原子成对;5 层防御(录入/池隔离/接口类型/选座完整性/退款成对) |
+| 限购 | Lua 脚本原子 INCR + 阈值检查;派座按"实际张数"计算(情侣 = 对数*2) |
 | 流量削峰 | `@RateLimit` 注解限流，全局 / 用户 / IP 三维度 |
-| 批量锁座 | Lua 脚本，任一失败全量回滚，不留半锁 |
-| 订单超时 | RabbitMQ TTL + 死信队列，精准 5 分钟触发 |
+| 批量锁座(选座) | Lua 脚本,任一失败全量回滚,不留半锁 |
+| 派座任务恢复 | `seat_allocation_task` 持久化 + `task=SUCCESS` 与 INSERT 同事务;消费者崩溃由 `SeatAllocationRecoveryScheduler` 据 `allocated_seats` 区分回滚方式 |
+| 订单超时 | RabbitMQ TTL + 死信队列 5 分钟触发;`OrderTimeoutScanScheduler` 每分钟扫 `expire_time+60s` 兜底,MQ 失败也能释放 |
 | 支付后解耦 | RabbitMQ Fanout，票券 / 库存 / 通知并行异步处理 |
 | 黑名单 | Redis key 存储，AOP 最先检查，不消耗限流计数 |
 

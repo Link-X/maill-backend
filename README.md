@@ -10,7 +10,7 @@
 
 [中文文档](README.zh.md)
 
-A ticket booking backend designed for thousand-level sustained QPS and ten-thousand-level peak ticket-grab scenarios. Architecture-wise it covers all the core patterns (Redis Lua atomic seat lock, local cache + pub/sub invalidation, async order creation, MQ-driven timeout cancellation, distributed scheduling, optimistic-locked state machine); reaching the upper bound at production scale still needs horizontal scaling + inventory sharding. Features show management, seat selection, Redis inventory, order timeout, mock payment, venue check-in, partial refunds, full-text search, in-app messaging, reviews, monitoring, and more. Built as a Maven multi-module project for independent deployment.
+A ticket booking backend designed for thousand-level sustained QPS and ten-thousand-level peak ticket-grab scenarios. Architecture-wise it covers all the core patterns (Redis Lua atomic seat lock, local cache + pub/sub invalidation, async order creation, MQ-driven timeout cancellation, distributed scheduling, optimistic-locked state machine); reaching the upper bound at production scale still needs horizontal scaling + inventory sharding. Features show management, **hybrid sale mode (user-pick seats + system-allocate seats)**, Redis inventory, order timeout, mock payment, venue check-in, partial refunds, full-text search, in-app messaging, reviews, monitoring, and more. Built as a Maven multi-module project for independent deployment.
 
 > **Companion frontend repository**: [Link-X/maill-frontend](https://github.com/Link-X/maill-frontend)
 
@@ -33,7 +33,11 @@ A ticket booking backend designed for thousand-level sustained QPS and ten-thous
 - **Show Reviews** — One-level comments + nested replies (`parent_id` self-reference); 1-5 star rating on top-level only; image attachments, likes (deduped via `uk_review_user`), reports, admin moderation (hide / restore / delete); per-show `review_mode` (disabled / open / verified-attendees) + `avg_rating` / `review_count` denormalized counters
 - **Reporting** — Admin `/api/admin/report/*` exposes 11 aggregate endpoints (overview / time series / by show / category / city / status / hour / session fill-rate / user / refund / cancellation); rolling time windows (1d/7d/30d/90d) or custom; results cached in Redis for 5 minutes. The `order` table now tracks `refund_amount` cumulatively and a `cancel_reason` to distinguish user-cancelled vs. timeout-cancelled
 - **Full-text Search** — Elasticsearch 8.x indexes three doc types (show / artist / article) asynchronously; write paths publish to `search.sync.queue`, `SearchSyncConsumer` upserts ES, `IndexInitializer` creates indices idempotently on startup; degrades gracefully when ES is unavailable
-- **Booking Core (Async Order Creation)** — `/api/order/submit` synchronously does only "validate + purchase-limit + Lua batch lock + pre-generate orderNo + publish MQ", returns immediately (~5ms). Actual `INSERT order` is consumed by `OrderCreateConsumer`; the frontend polls `/api/order/createStatus` with the orderNo until SUCCESS/FAILED. Decouples seat-lock from DB writes — under load the per-instance QPS ceiling jumps from a few hundred to a few thousand
+- **Booking Core (Async Order Creation)** — `/api/order/submit/by-seats` synchronously does only "validate + purchase-limit + Lua batch lock + pre-generate orderNo + publish MQ", returns immediately (~5ms). Actual `INSERT order` is consumed by `OrderCreateConsumer`; the frontend polls `/api/order/createStatus` with the orderNo until SUCCESS/FAILED. Decouples seat-lock from DB writes — under load the per-instance QPS ceiling jumps from a few hundred to a few thousand
+- **Hybrid Sale Mode (pick-seats + system-allocate coexist)** — `seat_area.sale_mode` is per-area: each area in the same session can be independently configured as "user picks seats" or "system allocates seats" (typical large concert pattern — VIP rows let users pick, grandstand sections are system-allocated). Allocation flow uses `/api/order/submit/by-area` accepting `{area, ticketType, quantity}`; backend synchronously DECRs `area:stock` (atomic counter), then asynchronously `ZPOPMIN`s from `area:pool` and creates the order
+- **Couple-seat Protection (5-layer defense)** — At warmup, `seat.type` **physically partitions** singles and couples into two pools (`area:pool:single` / `area:pool:couple`). `ticketType=1` only pops from the single pool; `ticketType=2` only pops from the couple pool whose members are `"leftId:rightId"` strings — a `ZPOPMIN` of a single member atomically returns both seats of a pair. **It is structurally impossible to allocate one seat of a couple pair to a single-seat buyer.** Combined with paired-entry validation, completeness check on pick-mode, and paired-refund constraint — 5 layers of defense in total
+- **Allocation Task Persistence + Self-healing** — The allocate flow spans Redis + MySQL ("DECR stock → publish MQ → ZPOPMIN pool → INSERT order → task=SUCCESS"); all intermediate state lives in `seat_allocation_task`, and `task=SUCCESS` is committed in the **same DB transaction** as the INSERT to make them atomic. `SeatAllocationRecoveryScheduler` scans PENDING tasks older than 2 min every minute; it inspects `allocated_seats` to choose between "rollback stock only" vs "rollback stock + return to pool" — surviving consumer crashes
+- **Order Timeout Safety-net Scan** — `OrderTimeoutScanScheduler` runs every minute scanning orders where `status=0 AND expire_time < now-60s`, running in parallel with the MQ TTL queue. Even if MQ delivery fails, seats are eventually released
 - **Oversell Prevention** — Redis Set atomic `SREM` deduction + DB-level safety check
 - **Order Timeout** — RabbitMQ TTL + dead-letter queue, cancels order and releases inventory exactly 5 minutes after creation
 - **Async Events** — After payment, RabbitMQ Fanout fan-out triggers ticket generation, DB inventory sync, and notification (reserved) in parallel
@@ -83,6 +87,8 @@ maill-backend/
 │                  #   SubscribeNotifier (open-sale reminders, batches sessions of same day)
 │                  #   SessionLifecycleScheduler (status 0→1 auto-warmup + 0/1→2 ended)
 │                  #   ArticleViewFlushScheduler (Redis view-counter → DB flush)
+│                  #   SeatAllocationRecoveryScheduler (recover timed-out allocation tasks: stock + pool repair)
+│                  #   OrderTimeoutScanScheduler (safety-net order cancellation; releases seats even when MQ fails)
 ├── admin/       # Admin REST API (port 8081) + Request DTOs + AdminAuthInterceptor
 ├── user/        # User  REST API (port 8082) + LoginCheckInterceptor
 ├── payment/     # Payment module (port 8083, reserved)
@@ -99,9 +105,10 @@ maill-backend/
 | `SessionService` | Session CRUD + publish + seat-map aggregate query |
 | `CategoryService` / `CityService` | Category / city (city is read-only) |
 | `RoomService` | Venue template + `copyToSession` (copies seats / price areas) |
-| `OrderCommandService` | Place / cancel / refund (transactional writes) |
+| `OrderCommandService` | Place / cancel / refund (transactional writes); 3-layer split — pick-mode entry / allocate-mode entry / pure-create core (`createOrderInternal` is `@Transactional`, invoked via `self` proxy) |
 | `OrderQueryService` | Single / list queries + OrderStatusResponse assembly (batch prefetch, avoids N+1) |
-| `SeatInventoryService` / `PurchaseLimitService` | Redis inventory and purchase limits |
+| `SeatInventoryService` / `PurchaseLimitService` | Redis inventory and purchase limits (pick-mode SET+lock + allocate-mode stock counter & single/couple pools) |
+| `SeatAllocationService` | Two-phase allocation primitives: `reserveStock` (atomic DECR) + `allocate` (ZPOPMIN); couple pool members are atomically pair-shaped |
 | `ArtistService` / `ArticleService` / `ArticleCategoryService` / `BannerService` | Artist / article / article-category / banner (with ES sync) |
 | `FavoriteService` / `SubscribeService` | Favorites & groups; open-sale reminder subscriptions |
 | `MessageService` | In-app messaging: unicast / broadcast / read / delete |
@@ -174,196 +181,12 @@ Creates 1 venue template (20 × 20 seats, VIP front section), 5 shows, 15 sessio
 
 ---
 
-## API Overview
-
-> **Detailed fields, request bodies, response shapes, and error codes** are in Swagger UI (after starting the service):
-> - User:  http://localhost:8082/swagger-ui.html
-> - Admin: http://localhost:8081/swagger-ui.html
->
-> The table below only gives a "what categories exist" overview, to avoid the README drifting away from the code.
-
-### User Service (:8082)
-
-| Module | Path prefix | Main capabilities |
-|--------|------------|-------------------|
-| Auth | `/api/auth/*` | Register / login (returns JWT) |
-| Category / City (home tabs) | `/api/category` `/api/city` | Enabled lists sorted by `sort` |
-| Banner | `/api/banner/list` | Home-page carousel (time-window + sort filtered) |
-| Shows | `/api/show/*` | List (name / categoryId / cityCode / venue filters) / detail; ShowVO carries categoryName / cityName / address / extend / artists / reviewMode / avgRating |
-| Sessions | `/api/session/*` | List / seat-map detail (includes show + city + address) |
-| Artists | `/api/artist/*` | List / detail / follow / unfollow / follow status / my follows |
-| Articles | `/api/article/*` `/api/article-category/list` | List (by category / by artist) / detail / category list |
-| Search | `/api/search/*` | Multi-index search (show / artist / article / all) + per-user history (add / clear) |
-| Favorites | `/api/favorite/*` | Add / remove / move-across-groups / check / list + group CRUD |
-| Subscribe | `/api/subscribe/*` | Open-sale reminder subscribe / unsubscribe / check / list |
-| Messages | `/api/message/*` | Inbox / unread count / mark read / mark all read / delete |
-| Reviews | `/api/review/*` | Publish top-level / reply / list / nested replies / like / report / my reviews / permission check |
-| Orders | `/api/order/*` | Lock & create / cancel / single-ticket refund / my orders / detail |
-| Payment | `/api/payment/*` | Pay an order |
-| Verification | `/api/verify/*` | QR / ticket-number check-in |
-| Upload | `/api/upload/*` | User-side image upload (review attachments) to MinIO |
-
-### Admin Service (:8081)
-
-| Module | Path prefix | Main capabilities |
-|--------|------------|-------------------|
-| Auth | `/api/admin/auth/*` | Admin register / login (requires `ADMIN_INVITE_CODE`) |
-| Categories | `/api/admin/category/*` | CRUD; deleting a referenced category returns 1012 |
-| Cities (read-only) | `/api/admin/city/list` | Dropdown source for the show form; seeded by schema.sql |
-| Venue templates | `/api/admin/room/*` | Room CRUD + seat template + default price areas + `/template` aggregate |
-| Image upload | `/api/admin/upload/image` | Multipart upload to MinIO, returns external URL |
-| Shows | `/api/admin/show/*` | Show CRUD with strict DTO validation; supports `reviewMode` / `openSaleTime` / `artistIds` / `artistRoles` to maintain show-artist relations in one call |
-| Sessions | `/api/admin/session/*` | Session CRUD + `/{id}/publish`; passing `roomId` auto-copies seats + prices |
-| Seats (manual) | `/api/admin/seat/*` | Batch seats / price areas / Redis warmup when not using a room template |
-| Artists | `/api/admin/artist/*` | Artist CRUD + status toggle |
-| Article categories | `/api/admin/article-category/*` | Article-category CRUD (in-use returns 1042; duplicate name 1041) |
-| Articles | `/api/admin/article/*` | Save (draft) / publish / take offline / list / delete |
-| Banner | `/api/admin/banner/*` | Banner CRUD + status toggle + sort |
-| Messages | `/api/admin/message/*` | Send unicast / broadcast / list (pushes to user inbox) |
-| Review moderation | `/api/admin/review/*` | Listing (incl. reported) / hide / restore / delete + report queue and handling |
-| Orders | `/api/admin/order/*` | Single / list (filter by showId / sessionId / orderNo / status / time range) |
-| Monitor | `/api/admin/monitor/dashboard` | Real-time seat counts (total / available / sold) |
-| **Reports** | `/api/admin/report/*` | 11 aggregate endpoints: overview / time series / by show, category, city / status & hour distributions / session fill-rate / users / refunds / cancellations (Redis 5-min cache) |
-
----
-
-<details>
-<summary>Legacy full API tables (collapsed; field-level docs live in Swagger now)</summary>
-
-#### Auth
-
-| Method | Path | Description | Auth |
-|--------|------|-------------|:----:|
-| POST | `/api/auth/register` | Register | ✗ |
-| POST | `/api/auth/login` | Login, returns JWT | ✗ |
-
-#### Categories / Cities (home-page tabs)
-
-| Method | Path | Description | Auth |
-|--------|------|-------------|:----:|
-| GET  | `/api/category/list` | Enabled categories, sorted by `sort` | ✗ |
-| GET  | `/api/city/list` | Enabled cities, sorted by `sort` (30 major cities seeded) | ✗ |
-
-#### Shows
-
-| Method | Path | Description | Auth |
-|--------|------|-------------|:----:|
-| POST | `/api/show/list` | Published show list (paginated; filter by name / categoryId / cityCode / venue; each item is a ShowVO with `categoryName` / `cityName` / `address` / `extend`) | ✗ |
-| GET  | `/api/show/{id}` | Show detail (ShowVO with `categoryName` / `cityName` / `address` / `extend`) | ✗ |
-
-#### Sessions
-
-| Method | Path | Description | Auth |
-|--------|------|-------------|:----:|
-| POST | `/api/session/list` | Session list (paginated, filterable by status / startTime / endTime) | ✗ |
-| POST | `/api/session/detail` | Session seat map (area prices + real-time availability + show / city / address info) | ✗ |
-
-#### Orders
-
-| Method | Path | Description | Auth |
-|--------|------|-------------|:----:|
-| POST | `/api/order/submit` | Lock seats + pre-gen orderNo + publish create-MQ, returns `{orderNo, "PROCESSING"}` immediately | ✓ |
-| GET  | `/api/order/createStatus` | Poll async order creation status (PROCESSING/SUCCESS/FAILED/NOT_FOUND) | ✓ |
-| POST | `/api/order/cancel` | Cancel order (unpaid: sync cancel; paid / partial-refund: initiate refund) | ✓ |
-| GET  | `/api/order/orderDetails` | Order detail (owner only; includes showCityName / showAddress) | ✓ |
-| POST | `/api/order/refundTicket` | Refund a single ticket (works on paid or partially-refunded orders) | ✓ |
-| POST | `/api/order/list` | My orders (paginated, filterable by status / date range) | ✓ |
-
-#### Payment & Verification
-
-| Method | Path | Description | Auth |
-|--------|------|-------------|:----:|
-| POST | `/api/payment/create` | Pay order | ✓ |
-| POST | `/api/verify/qr` | Verify by QR code | ✗ |
-| POST | `/api/verify/ticket` | Verify by ticket number | ✗ |
-
----
-
-### Admin Service (:8081)
-
-#### Show Categories
-
-Dedicated `category` table; shows link via `categoryId`. Deleting a category that's still referenced returns `1012 CATEGORY_IN_USE`.
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET    | `/api/admin/category/list?status=&keyword=` | List categories (optional status / keyword prefix filter) |
-| POST   | `/api/admin/category/create` | Create category (`name` unique, duplicate returns 1013) |
-| PUT    | `/api/admin/category/update` | Update category (`status=0` hides it from the user-side list) |
-| DELETE | `/api/admin/category/{id}` | Delete (returns 1012 when referenced by any show) |
-
-#### Cities (read-only)
-
-Seeded by `schema.sql` with 30 major cities; no admin write endpoint.
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/admin/city/list?status=&keyword=` | Source for the city dropdown when creating a show |
-
-#### Venue Templates (Room Management)
-
-Define the seat layout and default prices on a room once; specifying `roomId` when creating a session automatically copies all seats and price areas.
-
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/admin/room/create` | Create room |
-| PUT  | `/api/admin/room/update` | Update room |
-| GET  | `/api/admin/room/{id}` | Room detail |
-| GET  | `/api/admin/room/list` | Room list |
-| POST | `/api/admin/room/seat/batch` | Save room seat template (overwrite) |
-| GET  | `/api/admin/room/seat/list?roomId=` | Room seat template list |
-| POST | `/api/admin/room/area/save` | Save room default price areas (overwrite) |
-| GET  | `/api/admin/room/area/list?roomId=` | Room default price area list |
-| GET  | `/api/admin/room/template?roomId=` | **Aggregate query**: returns room + seats + areas in one call, ready for seat-map rendering |
-
-#### File Upload
-
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/admin/upload/image` | Upload an image to MinIO (`multipart/form-data`, field `file`, optional `dir` default `misc`); returns the externally accessible URL |
-
-#### Shows & Sessions
-
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/admin/show/create` | Create show |
-| PUT  | `/api/admin/show/update` | Update show |
-| GET  | `/api/admin/show/{id}` | Show detail |
-| GET  | `/api/admin/show/list` | Show list |
-| POST | `/api/admin/session/create` | Create session (pass `roomId` to auto-copy seats + prices) |
-| PUT  | `/api/admin/session/update` | Update session |
-| GET  | `/api/admin/session/{id}` | Session detail |
-| GET  | `/api/admin/session/list?showId=` | Session list |
-| PUT  | `/api/admin/session/{sessionId}/publish` | Publish session for sale |
-
-#### Seats (Manual — use when no room template)
-
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/admin/seat/batch` | Batch create seats |
-| GET  | `/api/admin/seat/list?sessionId=` | Seat list |
-| POST | `/api/admin/seat/area/save` | Save session price areas |
-| GET  | `/api/admin/seat/area/list?sessionId=` | Session price area list |
-| POST | `/api/admin/seat/warmup/{sessionId}` | Warm up seat inventory into Redis |
-
-#### Orders & Monitor
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET  | `/api/admin/order/{id}` | Order detail (raw Order entity) |
-| GET  | `/api/admin/order/query?orderNo=` | Lookup by order number |
-| GET  | `/api/admin/order/{id}/items` | Order line items (with seat info) |
-| POST | `/api/admin/order/list` | **Paginated order list** with filters: showId / sessionId / orderNo / status / time range; same response shape as the user-side list (includes show / city / tickets) |
-| GET  | `/api/admin/monitor/dashboard?sessionId=` | Real-time seat counts (total / available / sold) |
-
-</details>
-
----
-
 ## Core Booking Flow (Async Order Creation)
 
+### Pick-seats mode — POST /api/order/submit/by-seats
+
 ```
-User submits seat selection — POST /api/order/submit
+User submits seat selection — POST /api/order/submit/by-seats
     │
     ├─ @RateLimit blacklist / IP / user / global check (AOP, first to intercept)
     ├─ Session validation (status / openSaleTime / endTime)
@@ -415,6 +238,52 @@ Tickets   inventory   (reserved)
 >
 > **Failure handling**: If the consumer hits a business exception (seat already taken in oversell-safety check, area price missing) — `OrderCommandService` releases seats + rolls back purchase count + the consumer marks the pending key as FAILED. Frontend's next poll sees FAILED and shows the reason. If a system exception (DB unavailable) — the consumer rethrows so RabbitMQ retries (3 times default); the user sees PROCESSING and eventually SUCCESS or FAILED.
 
+### Allocate-seats mode — POST /api/order/submit/by-area
+
+```
+User picks {area, ticketType, quantity} — POST /api/order/submit/by-area
+    │
+    ├─ @RateLimit blacklist / IP / user / global
+    ├─ Session validation
+    ├─ Purchase-limit check & increment (couple counted as ×2 seats)
+    ├─ allocationService.reserveStock — atomic DECR area:stock:{single|couple} (Lua)
+    │       └─ Validates saleMode=2 + ticket type availability; insufficient stock fails fast
+    ├─ Pre-generate orderNo
+    ├─ INSERT seat_allocation_task = PENDING        ← persistent state for scheduler-based recovery
+    ├─ Set Redis pending key
+    ├─ Publish OrderAllocateMessage to order.allocate.queue
+    └─ Return immediately { orderNo, status: "PROCESSING" }
+                │
+                ├─────────────────── (Async) ──────────────────┐
+                │                                              │
+   Frontend polls /api/order/createStatus               OrderAllocateConsumer
+                │                                              │
+                │                                  ├─ Idempotency: if DB has the order → CAS task=SUCCESS + delete pending + return
+                │                                  ├─ task=SUCCESS/ROLLED_BACK → short-circuit or throw
+                │                                  ├─ allocationService.allocate — Lua ZPOPMIN N members from the pool
+                │                                  │       (single pool: member=seatId; couple pool: member="left:right")
+                │                                  ├─ Persist task.allocated_seats immediately (gives scheduler a recovery flag)
+                │                                  ├─ self.createOrderInternal (@Transactional):
+                │                                  │       INSERT order + items + task=SUCCESS in the same TX
+                │                                  └─ afterCommit:
+                │                                       consumeAllocatedSeat() — SREM session:seats
+                │                                       sendTimeoutMessage()
+                │
+   ┌────────────┴────────────┐
+   │                         │
+SUCCESS                    FAILED
+DB hit on orderNo          Redis pending = FAILED:reason
+→ returns OrderStatusResponse  → frontend shows error
+   │
+   └─ Subsequent flow is identical to pick-seats (payment → tickets / inventory sync / notification)
+```
+
+> **Why two-phase stock-deduction**: the hot path only touches the `area:stock` counter (atomic DECR), never the ZSET — fast-failing on insufficient stock is ultra-cheap, and the actual seat picking is deferred to the async consumer.
+>
+> **Couple-seat protection (core)**: At warmup, `seat.type` partitions singles (`type=1`) and couples (`type=2/3` pairs) into **physically separate pools**. The single pool **never contains couple-seat IDs**, so `ZPOPMIN` against it cannot return one. The couple pool's member is `"leftId:rightId"` — popping a single member atomically yields both seats of a pair, which is **structurally impossible to split**.
+>
+> **Crash recovery**: `seat_allocation_task` persists every intermediate step. The scheduler scans PENDING tasks older than 2 min and inspects `allocated_seats` — if empty (ZPOPMIN never ran) it only re-incs stock; if non-empty it both re-incs stock and re-`ZADD`s seats. Because `task=SUCCESS` shares the same DB transaction as the INSERT, a crash after INSERT but before status update is also safe (consumer's idempotency path detects the DB order and CAS-promotes the task).
+
 ---
 
 ## Refund Flow
@@ -426,6 +295,7 @@ Order status: 1 (PAID) or 5 (PARTIAL_REFUND)
     │       └─ Find all unused tickets → doRefund → status → REFUNDING (3)
     │
     └─ Per-ticket   POST /api/order/refundTicket
+            ├─ Couple-seat single-ticket refund blocked (must refund the pair together) → business exception
             └─ Validate ticket is unused → doRefund → status → REFUNDING (3)
                         │
               MQ consumer processes refund result
@@ -435,6 +305,8 @@ Order status: 1 (PAID) or 5 (PARTIAL_REFUND)
     Unused tickets remain       All tickets refunded
     status → PARTIAL_REFUND (5) status → REFUNDED (4)
 ```
+
+> **Release dispatch**: `releaseSeatsByMode` chooses the release path per-seat based on its area's `sale_mode` — pick-mode area: return to `session:seats` SET + delete `seat:lock` + DECR locked counter; allocate-mode area additionally returns seats to the corresponding `area:pool` + INCRs `area:stock`. Couple pairs are always returned as a pair, never split.
 
 ---
 
@@ -454,9 +326,13 @@ Order status: 1 (PAID) or 5 (PARTIAL_REFUND)
 ## Message Queue Design
 
 ```
-Async Order Creation (Direct):
+Async Order Creation — Pick-seats mode (Direct):
   order.create.exchange ──→ order.create.queue ──→ OrderCreateConsumer (INSERT order + items + send timeout MQ)
                               (3-retry built-in; failure → marks Redis pending key as FAILED)
+
+Async Order Creation — Allocate-seats mode (Direct):
+  order.allocate.exchange ──→ order.allocate.queue ──→ OrderAllocateConsumer
+                              (ZPOPMIN pool + INSERT order + task=SUCCESS in same TX; failure rolls back stock + pool)
 
 Order Timeout (TTL + Dead Letter):
   order.timeout.exchange ──→ order.timeout.queue (TTL 5 min)
@@ -508,8 +384,9 @@ public Result<?> submit(...) { }
 | `city` | Cities (GB/T administrative codes, `code` unique); 30 major cities seeded, no write endpoint |
 | `show` | Shows; `category_id` / `city_code` link to category and city; `address` full street address; `extend` JSON; `review_mode` review-mode + `avg_rating` / `review_count` denormalized rating stats; `open_sale_time` for reminders; indexes `idx_name` / `idx_venue` / `idx_category_id` / `idx_city_code` / `idx_open_sale_time` |
 | `show_session` | Sessions; `room_id` links the venue template; `limit_per_user` cap; `extend` JSON for ad-hoc display fields |
-| `seat` | Seat master table; real-time inventory lives in Redis, `status` synced async after payment |
-| `seat_area` | Per-session seat price areas |
+| `seat` | Seat master table (`type` 1=single / 2=couple-left / 3=couple-right; `pair_seat_id` mutually-pointing); real-time inventory lives in Redis, `status` synced async after payment |
+| `seat_area` | Per-session seat price areas; `sale_mode` (1=pick / 2=allocate), `single_total` / `couple_total` (allocate-mode statistics), `allocate_strategy` (allocation strategy) |
+| `seat_allocation_task` | Allocation tasks (intermediate state persistence); columns: `order_no` UNIQUE / `ticket_type` / `quantity` / `status` (0 pending, 1 success, 2 failed, 3 rolled-back) / `allocated_seats` CSV; `idx_status_create` for scheduler timeout scans |
 | `order` | Orders; `refund_amount` (cumulative) and `cancel_reason` (user vs. timeout) drive reports; indexes `idx_status_expire` / `idx_create_time` (for reporting time-window scans) |
 | `order_item` | Order lines with price snapshot |
 | `payment` | Payment records |
@@ -549,12 +426,16 @@ public Result<?> submit(...) { }
 
 | Key | Type | Description | TTL |
 |-----|------|-------------|-----|
-| `session:seats:{sessionId}` | Set | Available seat ID pool | 7 days |
+| `session:seats:{sessionId}` | Set | Available seat ID pool (shared by both modes as "sold/unsold source of truth") | 7 days |
 | `seat:info:{seatId}` | Hash | Seat details: row / col / type / area | 7 days |
-| `seat:lock:{sessionId}:{seatId}` | String | Seat lock (value = userId) | 5 min |
+| `seat:lock:{sessionId}:{seatId}` | String | Seat lock (pick-mode only, value = userId) | 5 min |
 | `session:purchase:{sessionId}:{userId}` | String | Per-user purchase count | 7 days |
-| `session:area:price:{sessionId}:{areaId}` | Hash | Area price cache | 7 days |
+| `session:area:price:{sessionId}:{areaId}` | Hash | Area price + sale-mode config (price / originPrice / saleMode / singleTotal / coupleTotal); `reserveStock` reads directly | 7 days |
 | `session:locked:{sessionId}` | String | Count of seats currently locked in checkout | 7 days |
+| `area:stock:single:{sessionId}:{areaId}` | String | **Allocate-mode** — area single-seat remaining count (atomic DECRBY) | 7 days |
+| `area:stock:couple:{sessionId}:{areaId}` | String | **Allocate-mode** — area couple-pair remaining count | 7 days |
+| `area:pool:single:{sessionId}:{areaId}` | ZSet | **Allocate-mode** — area single-seat pool; score = row\*100000+col; ZPOPMIN returns the front N | 7 days |
+| `area:pool:couple:{sessionId}:{areaId}` | ZSet | **Allocate-mode** — area couple-pair pool; member = `"leftId:rightId"`; popping a member atomically returns one pair, structurally impossible to split | 7 days |
 | `rate:global:{method}:{window}` | String | Global rate-limit counter | dynamic |
 | `rate:user:{userId}:{method}:{window}` | String | User rate-limit counter | dynamic |
 | `rate:ip:{ip}:{method}:{window}` | String | IP rate-limit counter | dynamic |
@@ -567,11 +448,14 @@ public Result<?> submit(...) { }
 
 | Problem | Solution |
 |---------|----------|
-| Oversell | Redis Set `SREM` atomic deduction + DB safety check |
-| Purchase limit | Lua atomic INCR + threshold check |
+| Oversell (pick-mode) | Redis Set `SREM` + per-seat SETNX lock atomic deduction + DB safety check |
+| Oversell (allocate-mode) | Two-phase — synchronous `DECR area:stock` (atomic counter), async `ZPOPMIN area:pool`; Lua "insufficient-then-rollback" inside the pool script |
+| Couple-seat protection | Warmup physically partitions pools by `type` (single / couple); couple-pool member = "left:right" pops atomically as a pair; 5-layer defense (entry validation / pool isolation / ticket-type enforcement / pick-mode completeness check / paired-refund constraint) |
+| Purchase limit | Lua atomic INCR + threshold check; allocate-mode counts "actual seat count" (couple = pairs × 2) |
 | Traffic spike | `@RateLimit` annotation limiting: global / user / IP three dimensions |
-| Batch seat lock | Lua script — full rollback on any failure, no partial locks |
-| Order timeout | RabbitMQ TTL + dead-letter queue, exactly 5 minutes |
+| Batch seat lock (pick-mode) | Lua script — full rollback on any failure, no partial locks |
+| Allocation task recovery | `seat_allocation_task` persistence + `task=SUCCESS` shares the INSERT transaction; on consumer crash, `SeatAllocationRecoveryScheduler` chooses rollback path by `allocated_seats` |
+| Order timeout | RabbitMQ TTL + dead-letter queue (5 min); `OrderTimeoutScanScheduler` scans `expire_time+60s` as a safety net — works even when MQ is down |
 | Post-payment decoupling | RabbitMQ Fanout — ticket / inventory / notification processed async in parallel |
 | Blacklist | Redis key storage, checked by AOP first, does not consume rate-limit counters |
 
