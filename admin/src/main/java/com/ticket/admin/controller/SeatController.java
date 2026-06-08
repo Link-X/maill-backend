@@ -60,6 +60,19 @@ public class SeatController {
         return Result.success(seatAreaService.getAreasBySession(sessionId));
     }
 
+    @Operation(summary = "更新区域售卖模式与派座策略",
+            description = "saleMode: 1=用户选座, 2=系统派座;allocateStrategy: 1=连坐优先, 2=分散, 3=任意。" +
+                          "销售中场次会自动触发 warmup 重建池子。同一场次内不同区域可独立设置(混合模式)。")
+    @PostMapping("/area/saleConfig")
+    public Result<Void> updateSaleConfig(
+            @Parameter(description = "场次 ID") @RequestParam Long sessionId,
+            @Parameter(description = "区域 ID") @RequestParam String areaId,
+            @Parameter(description = "售卖模式 1=选座 2=派座") @RequestParam Integer saleMode,
+            @Parameter(description = "派座策略 1=连坐优先 2=分散 3=任意,默认 1") @RequestParam(required = false) Integer allocateStrategy) {
+        seatAreaService.updateSaleConfig(sessionId, areaId, saleMode, allocateStrategy);
+        return Result.success();
+    }
+
     @Operation(summary = "预热场次库存到 Redis(应急接口)",
             description = "正常流程由定时任务在 openSaleTime 自动预热,无需手动调用。仅当管理员修改了价格/座位后需要立即覆盖 Redis 数据时使用。把该场次所有可售座位 ID 写入 Redis Set、区域价格写 Hash")
     @PostMapping("/warmup/{sessionId}")

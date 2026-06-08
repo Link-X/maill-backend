@@ -26,4 +26,26 @@ public interface SeatAreaMapper {
      * 根据场次 ID 删除座位区域
      */
     int deleteBySessionId(Long sessionId);
+
+    /**
+     * 按 session + areaId 查询单个区域,用于派座流程校验 sale_mode/库存/价格
+     */
+    SeatArea selectBySessionAndArea(@Param("sessionId") Long sessionId,
+                                    @Param("areaId") String areaId);
+
+    /**
+     * 更新区域售卖模式与派座策略(admin 编辑用)
+     */
+    int updateSaleConfig(@Param("sessionId") Long sessionId,
+                         @Param("areaId") String areaId,
+                         @Param("saleMode") Integer saleMode,
+                         @Param("allocateStrategy") Integer allocateStrategy);
+
+    /**
+     * 更新区域统计数(预热时按实际座位重算 single/couple)
+     */
+    int updateTotals(@Param("sessionId") Long sessionId,
+                     @Param("areaId") String areaId,
+                     @Param("singleTotal") Integer singleTotal,
+                     @Param("coupleTotal") Integer coupleTotal);
 }

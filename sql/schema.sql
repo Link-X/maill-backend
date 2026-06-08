@@ -203,16 +203,42 @@ CREATE TABLE IF NOT EXISTS ticket (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='票据表';
 
 -- 10. 座位价格区域表
+-- sale_mode 决定该区域的售卖方式;同场次内允许混合模式(例如 VIP 区选座、看台区派座)
 CREATE TABLE IF NOT EXISTS seat_area (
-    id          BIGINT       NOT NULL AUTO_INCREMENT,
-    session_id  BIGINT       NOT NULL COMMENT '关联场次ID',
-    area_id     VARCHAR(32)  NOT NULL COMMENT '区域标识(如 0、1，场次内唯一)',
-    price       DECIMAL(10,2) NOT NULL COMMENT '区域售价',
-    origin_price DECIMAL(10,2) NOT NULL COMMENT '区域原价',
+    id                BIGINT        NOT NULL AUTO_INCREMENT,
+    session_id        BIGINT        NOT NULL COMMENT '关联场次ID',
+    area_id           VARCHAR(32)   NOT NULL COMMENT '区域标识(如 0、1，场次内唯一)',
+    price             DECIMAL(10,2) NOT NULL COMMENT '区域售价',
+    origin_price      DECIMAL(10,2) NOT NULL COMMENT '区域原价',
+    sale_mode         TINYINT       NOT NULL DEFAULT 1 COMMENT '售卖模式: 1=用户选座, 2=系统派座',
+    single_total      INT           NOT NULL DEFAULT 0 COMMENT '区域内单座总数(type=1),初始化时按 seat 表统计',
+    couple_total      INT           NOT NULL DEFAULT 0 COMMENT '区域内情侣对总数(type=2+3 配对),初始化时按 seat 表统计',
+    allocate_strategy TINYINT       NOT NULL DEFAULT 1 COMMENT '派座策略(sale_mode=2 生效): 1=连坐优先, 2=分散, 3=任意',
     PRIMARY KEY (id),
     UNIQUE KEY uk_session_area (session_id, area_id),
     KEY idx_session_id (session_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='座位价格区域表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='座位价格区域表(含售卖模式)';
+
+-- 10.5 派座任务表（sale_mode=2 时的中间状态持久化）
+-- 派座流程是「同步扣 Redis 库存 → 异步派具体座位 → 建单」,中间状态必须落库,
+-- 否则进程崩溃会出现"库存扣了但订单没建"的脏数据。定时任务扫描超时回滚。
+CREATE TABLE IF NOT EXISTS seat_allocation_task (
+    id              BIGINT       NOT NULL AUTO_INCREMENT,
+    order_no        VARCHAR(32)  NOT NULL COMMENT '订单号(submit 同步预生成)',
+    user_id         BIGINT       NOT NULL COMMENT '用户ID',
+    session_id      BIGINT       NOT NULL COMMENT '场次ID',
+    area_id         VARCHAR(32)  NOT NULL COMMENT '区域ID',
+    ticket_type     TINYINT      NOT NULL COMMENT '票种: 1=单座, 2=情侣对',
+    quantity        INT          NOT NULL COMMENT 'ticket_type=1 时为张数, =2 时为对数',
+    status          TINYINT      NOT NULL DEFAULT 0 COMMENT '0=待派, 1=派座+建单成功, 2=失败, 3=已回滚',
+    allocated_seats VARCHAR(1024) DEFAULT NULL COMMENT '逗号分隔的派出座位 ID(派座成功后写入)',
+    fail_reason     VARCHAR(256)  DEFAULT NULL COMMENT '失败原因',
+    create_time     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_order_no (order_no),
+    KEY idx_status_create (status, create_time) COMMENT '定时回滚扫描用'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='派座任务表';
 
 -- 11. 场地表（座位布局模板载体）
 CREATE TABLE IF NOT EXISTS room (

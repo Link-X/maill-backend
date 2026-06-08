@@ -95,4 +95,37 @@ public class RedisKeys {
     public static String orderCreatePending(String orderNo) {
         return "order:create:pending:" + orderNo;
     }
+
+    // ========== 派座(sale_mode=2)相关 ==========
+
+    /**
+     * 区域单座剩余张数(STRING,原子 DECRBY/INCRBY)。
+     * 与情侣池物理隔离,情侣座永远不会出现在此计数器对应的池子里。
+     */
+    public static String areaStockSingle(long sessionId, String areaId) {
+        return "area:stock:single:" + sessionId + ":" + areaId;
+    }
+
+    /**
+     * 区域情侣对剩余对数(STRING,原子 DECRBY/INCRBY)。一对 = 2 个 seat。
+     */
+    public static String areaStockCouple(long sessionId, String areaId) {
+        return "area:stock:couple:" + sessionId + ":" + areaId;
+    }
+
+    /**
+     * 区域单座池(ZSET, score=rowNo*100000+colNo, member=seatId)。
+     * 按 score 升序 = 按排号/列号升序,方便取"靠前/连续"的座位。
+     */
+    public static String areaPoolSingle(long sessionId, String areaId) {
+        return "area:pool:single:" + sessionId + ":" + areaId;
+    }
+
+    /**
+     * 区域情侣对池(ZSET, score=rowNo*100000+min(colNo), member="leftSeatId:rightSeatId")。
+     * 一个 member 就是"一对",派对操作天然原子,不可能拆散。
+     */
+    public static String areaPoolCouple(long sessionId, String areaId) {
+        return "area:pool:couple:" + sessionId + ":" + areaId;
+    }
 }

@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.ticket.core.mapper.SeatAllocationTaskMapper">
+
+    <resultMap id="TaskResultMap" type="com.ticket.core.domain.entity.SeatAllocationTask">
+        <id     column="id"              property="id"/>
+        <result column="order_no"        property="orderNo"/>
+        <result column="user_id"         property="userId"/>
+        <result column="session_id"      property="sessionId"/>
+        <result column="area_id"         property="areaId"/>
+        <result column="ticket_type"     property="ticketType"/>
+        <result column="quantity"        property="quantity"/>
+        <result column="status"          property="status"/>
+        <result column="allocated_seats" property="allocatedSeats"/>
+        <result column="fail_reason"     property="failReason"/>
+        <result column="create_time"     property="createTime"/>
+        <result column="update_time"     property="updateTime"/>
+    </resultMap>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO seat_allocation_task
+            (order_no, user_id, session_id, area_id, ticket_type, quantity, status,
+             allocated_seats, fail_reason)
+        VALUES
+            (#{orderNo}, #{userId}, #{sessionId}, #{areaId}, #{ticketType}, #{quantity}, #{status},
+             #{allocatedSeats}, #{failReason})
+    </insert>
+
+    <select id="selectByOrderNo" resultMap="TaskResultMap">
+        SELECT id, order_no, user_id, session_id, area_id, ticket_type, quantity, status,
+               allocated_seats, fail_reason, create_time, update_time
+        FROM seat_allocation_task
+        WHERE order_no = #{orderNo}
+        LIMIT 1
+    </select>
+
+    <!-- CAS:仅 status=expectFrom 时才更新成 expectTo,防止重复消费/回滚抢答 -->
+    <update id="updateStatusFrom">
+        UPDATE seat_allocation_task
+        SET status = #{expectTo},
+            allocated_seats = COALESCE(#{allocatedSeats}, allocated_seats),
+            fail_reason     = COALESCE(#{failReason}, fail_reason)
+        WHERE order_no = #{orderNo} AND status = #{expectFrom}
+    </update>
+
+    <select id="selectTimeoutPending" resultMap="TaskResultMap">
+        SELECT id, order_no, user_id, session_id, area_id, ticket_type, quantity, status,
+               allocated_seats, fail_reason, create_time, update_time
+        FROM seat_allocation_task
+        WHERE status = 0 AND create_time &lt; #{before}
+        ORDER BY id ASC
+        LIMIT #{limit}
+    </select>
+
+    <!-- 仅更新 allocated_seats(状态保持 PENDING) -->
+    <update id="updateAllocatedOnly">
+        UPDATE seat_allocation_task
+        SET allocated_seats = #{allocatedSeats}
+        WHERE order_no = #{orderNo} AND status = 0
+    </update>
+
+</mapper>

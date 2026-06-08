@@ -29,6 +29,11 @@ public class RabbitMQConfig {
     public static final String ORDER_CREATE_QUEUE        = "order.create.queue";
     public static final String ORDER_CREATE_ROUTING_KEY  = "order.create";
 
+    // 派座模式异步建单相关:submit/by-area 扣库存后立即返回单号,实际派座+INSERT 走异步队列
+    public static final String ORDER_ALLOCATE_EXCHANGE     = "order.allocate.exchange";
+    public static final String ORDER_ALLOCATE_QUEUE        = "order.allocate.queue";
+    public static final String ORDER_ALLOCATE_ROUTING_KEY  = "order.allocate";
+
     // 退款相关
     public static final String REFUND_EXCHANGE    = "refund.exchange";
     public static final String REFUND_QUEUE       = "refund.queue";
@@ -190,6 +195,25 @@ public class RabbitMQConfig {
     @Bean
     public Binding orderCreateBinding() {
         return BindingBuilder.bind(orderCreateQueue()).to(orderCreateExchange()).with(ORDER_CREATE_ROUTING_KEY);
+    }
+
+    /** 派座异步建单交换机 */
+    @Bean
+    public DirectExchange orderAllocateExchange() {
+        return new DirectExchange(ORDER_ALLOCATE_EXCHANGE, true, false);
+    }
+
+    /** 派座异步建单队列 */
+    @Bean
+    public Queue orderAllocateQueue() {
+        return QueueBuilder.durable(ORDER_ALLOCATE_QUEUE).build();
+    }
+
+    @Bean
+    public Binding orderAllocateBinding() {
+        return BindingBuilder.bind(orderAllocateQueue())
+                .to(orderAllocateExchange())
+                .with(ORDER_ALLOCATE_ROUTING_KEY);
     }
 
     /** 搜索同步交换机 */
