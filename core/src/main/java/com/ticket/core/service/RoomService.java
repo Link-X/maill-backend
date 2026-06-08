@@ -1,5 +1,7 @@
 package com.ticket.core.service;
 
+import com.ticket.common.exception.BusinessException;
+import com.ticket.common.exception.ErrorCode;
 import com.ticket.core.domain.entity.Room;
 import com.ticket.core.domain.entity.RoomArea;
 import com.ticket.core.domain.entity.RoomSeat;
@@ -11,6 +13,7 @@ import com.ticket.core.mapper.RoomMapper;
 import com.ticket.core.mapper.RoomSeatMapper;
 import com.ticket.core.mapper.SeatAreaMapper;
 import com.ticket.core.mapper.SeatMapper;
+import com.ticket.core.mapper.ShowSessionMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,17 +32,20 @@ public class RoomService {
     private final RoomAreaMapper roomAreaMapper;
     private final SeatMapper seatMapper;
     private final SeatAreaMapper seatAreaMapper;
+    private final ShowSessionMapper showSessionMapper;
 
     public RoomService(RoomMapper roomMapper,
                        RoomSeatMapper roomSeatMapper,
                        RoomAreaMapper roomAreaMapper,
                        SeatMapper seatMapper,
-                       SeatAreaMapper seatAreaMapper) {
+                       SeatAreaMapper seatAreaMapper,
+                       ShowSessionMapper showSessionMapper) {
         this.roomMapper = roomMapper;
         this.roomSeatMapper = roomSeatMapper;
         this.roomAreaMapper = roomAreaMapper;
         this.seatMapper = seatMapper;
         this.seatAreaMapper = seatAreaMapper;
+        this.showSessionMapper = showSessionMapper;
     }
 
     @Transactional
@@ -56,6 +62,31 @@ public class RoomService {
         room.setUpdateTime(LocalDateTime.now());
         roomMapper.update(room);
         return roomMapper.selectById(room.getId());
+    }
+
+    /**
+     * 删除场地。
+     *
+     * <p>引用约束:任意 show_session.room_id = 该场地 → 拒绝删除(返回 ROOM_IN_USE)。
+     * 即使被引用的 session 已结束也保留场地数据,因为 session 自身的 room_id 字段在历史上仍指向它,
+     * 删掉会让 admin 后台订单/统计页面的关联回查变 NULL,造成数据可读性下降。
+     *
+     * <p>未被引用 → 同事务级联删除 room / room_seat / room_area。模板与已创建场次的座位已是独立副本,
+     * 删模板不影响任何在售场次。
+     */
+    @Transactional
+    public void deleteRoom(Long roomId) {
+        Room room = roomMapper.selectById(roomId);
+        if (room == null) {
+            throw new BusinessException(ErrorCode.ROOM_NOT_FOUND);
+        }
+        int referenced = showSessionMapper.countByRoomId(roomId);
+        if (referenced > 0) {
+            throw new BusinessException(ErrorCode.ROOM_IN_USE);
+        }
+        roomSeatMapper.deleteByRoomId(roomId);
+        roomAreaMapper.deleteByRoomId(roomId);
+        roomMapper.deleteById(roomId);
     }
 
     public Room getRoom(Long id) {

@@ -143,4 +143,9 @@
           AND end_time &lt;= #{now}
     </update>
 
+    <!-- 统计某场地被引用的场次数(删除场地前的引用检查) -->
+    <select id="countByRoomId" resultType="int">
+        SELECT COUNT(*) FROM show_session WHERE room_id = #{roomId}
+    </select>
+
 </mapper>

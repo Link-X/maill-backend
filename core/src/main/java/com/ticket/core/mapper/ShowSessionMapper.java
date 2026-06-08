@@ -87,4 +87,9 @@ public interface ShowSessionMapper {
      * 批量把 status IN (0,1) 且 end_time <= now 的场次置为 2(已结束)
      */
     int batchEndExpired(@Param("now") LocalDateTime now);
+
+    /**
+     * 统计某场地被引用的场次数,用于删除场地前的校验
+     */
+    int countByRoomId(@Param("roomId") Long roomId);
 }

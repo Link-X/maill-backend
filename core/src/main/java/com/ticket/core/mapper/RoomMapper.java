@@ -9,6 +9,7 @@ import java.util.List;
 public interface RoomMapper {
     int insert(Room room);
     int update(Room room);
+    int deleteById(Long id);
     Room selectById(Long id);
     List<Room> selectAll();
 }

@@ -51,7 +51,11 @@ public enum ErrorCode {
 
     // --- 派座(混合模式)相关 ---
     STOCK_NOT_ENOUGH(1100, "库存不足"),
-    AREA_SALE_MODE_MISMATCH(1101, "区域售卖模式不匹配");
+    AREA_SALE_MODE_MISMATCH(1101, "区域售卖模式不匹配"),
+
+    // --- 场地模板相关 ---
+    ROOM_NOT_FOUND(1110, "场地不存在"),
+    ROOM_IN_USE(1111, "场地已被场次引用,无法删除");
 
     private final int code;
     private final String message;

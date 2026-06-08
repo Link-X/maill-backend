@@ -44,4 +44,8 @@
         LIMIT 1000
     </select>
 
+    <delete id="deleteById">
+        DELETE FROM room WHERE id = #{id}
+    </delete>
+
 </mapper>

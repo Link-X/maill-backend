@@ -41,6 +41,16 @@ public class RoomController {
         return Result.success(roomService.createRoom(room));
     }
 
+    @Operation(summary = "删除场地",
+            description = "级联删除场地本身及其座位模板(room_seat)和默认价格区域(room_area);" +
+                          "如果该场地仍被任何 show_session 引用(`show_session.room_id`),返回 1111 ROOM_IN_USE 拒绝删除。" +
+                          "模板与已创建场次的数据是独立副本,删模板不影响在售场次。")
+    @DeleteMapping("/{id}")
+    public Result<Void> deleteRoom(@Parameter(description = "场地 ID") @PathVariable Long id) {
+        roomService.deleteRoom(id);
+        return Result.success();
+    }
+
     @Operation(summary = "更新场地基本信息", description = "改的是场地本身，不影响已经基于此场地创建的场次（场次的座位/价格已经在创建时复制走了，独立维护）")
     @PutMapping("/update")
     public Result<Room> updateRoom(@Valid @RequestBody RoomUpdateRequest req) {
