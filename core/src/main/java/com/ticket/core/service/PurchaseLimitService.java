@@ -116,4 +116,19 @@ public class PurchaseLimitService {
         }
     }
 
+    /**
+     * 查询用户在指定场次的已购数量。
+     * 用于"我的剩余可购"展示;若 key 不存在(从未购买)返回 0。
+     */
+    public int getPurchasedCount(long sessionId, long userId) {
+        String key = RedisKeys.sessionPurchase(sessionId, userId);
+        String v = redisTemplate.opsForValue().get(key);
+        if (v == null) return 0;
+        try {
+            return Math.max(0, Integer.parseInt(v));
+        } catch (NumberFormatException ex) {
+            return 0;
+        }
+    }
+
 }

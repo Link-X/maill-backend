@@ -140,7 +140,9 @@ common ← core ← admin
 docker-compose up -d
 ```
 
-Starts MySQL 8 (3306), Redis 7 (6379), RabbitMQ 3 (5672, management UI on 15672), MinIO (9000 API / 9001 console), Elasticsearch 8.13 (9200), Prometheus (9090), and Grafana (3000). `sql/schema.sql` is executed automatically on first run; the MinIO `image` bucket (configured via `minio.bucket` in `application-dev.yml`) is auto-created with a public-read policy the first time admin starts; the three ES indices (show / artist / article) are created idempotently on startup by `IndexInitializer`; Grafana auto-provisions the Prometheus datasource and the "Ticket System Overview" dashboard on first run — no manual setup required.
+Starts MySQL 8 (3306), Redis 7 (6379), RabbitMQ 3 (5672, management UI on 15672), MinIO (9000 API / 9001 console), Elasticsearch 8.13 (9200), Prometheus (9090), and Grafana (3000). `sql/schema.sql` is executed automatically on first run; the MinIO `image` bucket is created with a public-read policy by the one-shot init container `ticket-minio-init` once MinIO is healthy (infra-level setup, independent of any application boot order); the three ES indices (show / artist / article) are created idempotently on startup by `IndexInitializer`; Grafana auto-provisions the Prometheus datasource and the "Ticket System Overview" dashboard on first run — no manual setup required.
+
+> **MinIO bucket safety net**: Even without docker-compose (e.g. a hand-rolled MinIO), the admin app retries `ensureBucket + setPublicReadPolicy` 5 times on `ApplicationReadyEvent`; failure logs at ERROR for alerting.
 
 > **RabbitMQ Management UI**: http://localhost:15672 (guest / guest)
 > **MinIO Console**: http://localhost:9001 (minioadmin / minioadmin123)

@@ -58,6 +58,30 @@ services:
       - minio-data:/data
     command: server /data --console-address ":9001"
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+  # 一次性 init 容器:在 MinIO 健康后建 image bucket 并设为匿名可读。
+  # 这样新人 `docker-compose up -d` 后无需任何手动操作,前端上传的图片就能直链访问;
+  # admin 应用代码里的 initBucket 仅作冷启动兜底。
+  minio-init:
+    image: minio/mc:latest
+    container_name: ticket-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      sh -c "
+        mc alias set local http://minio:9000 minioadmin minioadmin123 &&
+        mc mb --ignore-existing local/image &&
+        mc anonymous set download local/image &&
+        echo '[minio-init] bucket [image] ready (public read)'
+      "
+    restart: "no"
 
   elasticsearch:
     image: elasticsearch:8.13.4

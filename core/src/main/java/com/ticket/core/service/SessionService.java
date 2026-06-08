@@ -153,6 +153,15 @@ public class SessionService {
             vo.setAreaId(area.getAreaId());
             vo.setPrice(area.getPrice().toPlainString());
             vo.setOriginPrice(area.getOriginPrice().toPlainString());
+            // 售卖模式 + 统计数:前端按此分流选座 / 派座 UI
+            vo.setSaleMode(area.getSaleMode() != null ? area.getSaleMode() : 1);
+            vo.setSingleTotal(area.getSingleTotal() != null ? area.getSingleTotal() : 0);
+            vo.setCoupleTotal(area.getCoupleTotal() != null ? area.getCoupleTotal() : 0);
+            // 派座区实时库存(Redis);选座区为 null
+            if (vo.getSaleMode() == 2 && onSale) {
+                vo.setSingleStock((int) inventoryService.getAreaStock(sessionId, area.getAreaId(), 1));
+                vo.setCoupleStock((int) inventoryService.getAreaStock(sessionId, area.getAreaId(), 2));
+            }
             areaPriceList.add(vo);
         }
 

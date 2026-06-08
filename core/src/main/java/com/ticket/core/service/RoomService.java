@@ -190,16 +190,59 @@ public class RoomService {
 
         List<RoomArea> roomAreas = roomAreaMapper.selectByRoomId(roomId);
         if (!roomAreas.isEmpty()) {
+            // 1. 复制价格区域 — saleMode 默认 1(选座),后续 admin 可改
             List<SeatArea> seatAreas = roomAreas.stream().map(ra -> {
                 SeatArea sa = new SeatArea();
                 sa.setSessionId(sessionId);
                 sa.setAreaId(ra.getAreaId());
                 sa.setPrice(ra.getDefaultPrice());
                 sa.setOriginPrice(ra.getDefaultOriginPrice());
+                sa.setSaleMode(1);
+                sa.setSingleTotal(0);
+                sa.setCoupleTotal(0);
+                sa.setAllocateStrategy(1);
                 return sa;
             }).collect(Collectors.toList());
             seatAreaMapper.batchInsert(seatAreas);
+
+            // 2. 按实际 seat 统计 single/couple 总数并回写
+            //    (派座流程的 reserveStock 直接读 totals 校验票种是否可用,必须准)
+            java.util.Map<String, int[]> totals = computeRoomAreaTotals(roomSeats);
+            for (SeatArea sa : seatAreas) {
+                int[] t = totals.getOrDefault(sa.getAreaId(), new int[]{0, 0});
+                if (t[0] != 0 || t[1] != 0) {
+                    seatAreaMapper.updateTotals(sessionId, sa.getAreaId(), t[0], t[1]);
+                }
+            }
         }
         return seatCount;
+    }
+
+    /**
+     * 按 room_seat 统计每个区域的 (单座数, 情侣对数)。
+     * 情侣对识别:type=2/3 且 pair_seat_id 互指,只统计一次。
+     */
+    private java.util.Map<String, int[]> computeRoomAreaTotals(List<RoomSeat> roomSeats) {
+        java.util.Map<String, int[]> totals = new java.util.HashMap<>();
+        java.util.Map<Long, RoomSeat> idx = new java.util.HashMap<>();
+        for (RoomSeat s : roomSeats) idx.put(s.getId(), s);
+        java.util.Set<Long> consumed = new java.util.HashSet<>();
+        for (RoomSeat s : roomSeats) {
+            String areaId = s.getAreaId() == null ? "" : s.getAreaId();
+            int[] t = totals.computeIfAbsent(areaId, k -> new int[]{0, 0});
+            if (s.getType() != null && s.getType() == 1) {
+                t[0]++;
+            } else if (s.getType() != null && (s.getType() == 2 || s.getType() == 3)) {
+                if (consumed.contains(s.getId())) continue;
+                Long pairId = s.getPairSeatId();
+                if (pairId == null) continue;
+                RoomSeat pair = idx.get(pairId);
+                if (pair == null) continue;
+                consumed.add(s.getId());
+                consumed.add(pair.getId());
+                t[1]++;
+            }
+        }
+        return totals;
     }
 }

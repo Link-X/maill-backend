@@ -99,6 +99,9 @@ public class SeatAreaService {
      *
      * <p>销售中拒绝:改 sale_mode 需要重建池子,而重建会让已售座位复活引起超卖。
      * 必须在场次未开售(status=0)或已结束(status=2)时操作。
+     *
+     * <p>自愈:如果该区域 single_total / couple_total 仍为 0(老数据可能从未统计过),
+     * 这里顺便按当前 seat 表实际数据回填,保证派座流程的票种校验不会误报"无单座/情侣座"。
      */
     @Transactional
     public void updateSaleConfig(Long sessionId, String areaId,
@@ -116,6 +119,15 @@ public class SeatAreaService {
         }
 
         seatAreaMapper.updateSaleConfig(sessionId, areaId, saleMode, allocateStrategy);
+
+        // 自愈兜底:按实际 seat 表回填 single_total / couple_total
+        // (老数据 copyToSession 没算 totals 的场次,通过这里能自动修复)
+        List<Seat> seats = seatMapper.selectBySessionId(sessionId);
+        if (!seats.isEmpty()) {
+            java.util.Map<String, int[]> totals = inventoryService.computeAreaTotals(seats);
+            int[] t = totals.getOrDefault(areaId, new int[]{0, 0});
+            seatAreaMapper.updateTotals(sessionId, areaId, t[0], t[1]);
+        }
 
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override

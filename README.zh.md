@@ -140,7 +140,9 @@ common ← core ← admin
 docker-compose up -d
 ```
 
-启动 MySQL 8(3306)、Redis 7(6379)、RabbitMQ 3(5672,管理界面 15672)、MinIO(9000 API / 9001 控制台)、Elasticsearch 8.13(9200)、Prometheus(9090)、Grafana(3000)。`sql/schema.sql` 首次运行自动执行;MinIO 的 `image` bucket(在 `application-dev.yml` 的 `minio.bucket` 配置)由 admin 启动时自动创建并设为公共读;ES 三个索引(show / artist / article)由 `IndexInitializer` 启动时幂等创建;Grafana 首次启动自动注入 Prometheus 数据源 + 预置 "Ticket 系统概览" dashboard。均无需手动建。
+启动 MySQL 8(3306)、Redis 7(6379)、RabbitMQ 3(5672,管理界面 15672)、MinIO(9000 API / 9001 控制台)、Elasticsearch 8.13(9200)、Prometheus(9090)、Grafana(3000)。`sql/schema.sql` 首次运行自动执行;MinIO 的 `image` bucket 由配套的一次性 init 容器 `ticket-minio-init` 在 MinIO 健康后自动建好并设为匿名可读(基础设施层就完成,不依赖应用启动顺序);ES 三个索引(show / artist / article)由 `IndexInitializer` 启动时幂等创建;Grafana 首次启动自动注入 Prometheus 数据源 + 预置 "Ticket 系统概览" dashboard。均无需手动建。
+
+> **MinIO bucket 兜底**:即使没用 docker-compose(例如手动起的 MinIO),admin 应用在 `ApplicationReadyEvent` 时也会重试 5 次去 `ensureBucket + setPublicReadPolicy`,失败会记 ERROR 日志便于告警。
 
 > **RabbitMQ 管理界面**:http://localhost:15672(guest / guest)
 > **MinIO 管理控制台**:http://localhost:9001(minioadmin / minioadmin123)
