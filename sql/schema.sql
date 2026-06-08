@@ -284,7 +284,7 @@ CREATE TABLE IF NOT EXISTS room_area (
 -- 直辖市使用一级代码（如 110000），地级市使用二级代码（如 440100 广州）。
 -- 上线后只读，不通过后台 CRUD 修改。
 -- ============================================================
-INSERT INTO city (code, name, sort, status) VALUES
+INSERT IGNORE INTO city (code, name, sort, status) VALUES
     ('110000', '北京',     1,  1),
     ('310000', '上海',     2,  1),
     ('440100', '广州',     3,  1),
