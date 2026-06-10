@@ -5,6 +5,7 @@ import com.ticket.core.domain.entity.Ticket;
 import com.ticket.core.mapper.OrderMapper;
 import com.ticket.core.mapper.TicketMapper;
 import com.ticket.core.mq.producer.RefundProducer;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
@@ -46,15 +47,18 @@ public class RefundReconciler {
     private final TicketMapper ticketMapper;
     private final RefundProducer refundProducer;
     private final RedissonClient redissonClient;
+    private final MeterRegistry meterRegistry;
 
     public RefundReconciler(OrderMapper orderMapper,
                             TicketMapper ticketMapper,
                             RefundProducer refundProducer,
-                            RedissonClient redissonClient) {
+                            RedissonClient redissonClient,
+                            MeterRegistry meterRegistry) {
         this.orderMapper = orderMapper;
         this.ticketMapper = ticketMapper;
         this.refundProducer = refundProducer;
         this.redissonClient = redissonClient;
+        this.meterRegistry = meterRegistry;
     }
 
     /** 每分钟执行一次 */
@@ -95,10 +99,13 @@ public class RefundReconciler {
                         .map(Ticket::getSeatId)
                         .collect(Collectors.toList());
                 if (seatIds.isEmpty()) {
+                    // 需人工介入的卡单 — 该指标 > 0 必须告警
+                    meterRegistry.counter("refund.reconcile.manual").increment();
                     log.warn("订单已无可退座位但仍卡在退款中,需人工介入,orderId={}", order.getId());
                     continue;
                 }
                 refundProducer.sendRefund(order.getId(), seatIds);
+                meterRegistry.counter("refund.reconcile.resend").increment();
                 log.info("退款补偿:重投 MQ orderId={} seats={}", order.getId(), seatIds);
             } catch (Exception e) {
                 log.error("退款补偿重投失败 orderId={}", order.getId(), e);

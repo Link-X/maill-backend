@@ -1,5 +1,6 @@
 package com.ticket.core.mq.config;
 
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.core.*;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
@@ -9,7 +10,9 @@ import org.springframework.amqp.support.converter.MessageConverter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @Slf4j
@@ -50,6 +53,37 @@ public class RabbitMQConfig {
     public static final String SEARCH_SYNC_QUEUE       = "search.sync.queue";
     public static final String SEARCH_SYNC_ROUTING_KEY = "search.sync";
 
+    // 死信相关:所有业务队列重试耗尽后消息进入对应 DLQ,而非静默丢弃。
+    // 资金/票券链路(退款、出票、库存同步)的消息丢失会直接造成资损,必须可追溯、可人工补偿。
+    public static final String DLX_EXCHANGE       = "business.dlx.exchange";
+    public static final String DLQ_SUFFIX         = ".dlq";
+    public static final String DLQ_ROUTING_PREFIX = "dlq.";
+
+    // DLQ 名称常量(编译期常量,供 @RabbitListener 引用)
+    public static final String ORDER_CANCEL_DLQ    = ORDER_CANCEL_QUEUE + DLQ_SUFFIX;
+    public static final String ORDER_CREATE_DLQ    = ORDER_CREATE_QUEUE + DLQ_SUFFIX;
+    public static final String ORDER_ALLOCATE_DLQ  = ORDER_ALLOCATE_QUEUE + DLQ_SUFFIX;
+    public static final String REFUND_DLQ          = REFUND_QUEUE + DLQ_SUFFIX;
+    public static final String TICKET_GENERATE_DLQ = TICKET_GENERATE_QUEUE + DLQ_SUFFIX;
+    public static final String INVENTORY_SYNC_DLQ  = INVENTORY_SYNC_QUEUE + DLQ_SUFFIX;
+    public static final String NOTIFICATION_DLQ    = NOTIFICATION_QUEUE + DLQ_SUFFIX;
+    public static final String SEARCH_SYNC_DLQ     = SEARCH_SYNC_QUEUE + DLQ_SUFFIX;
+
+    /** 需要挂 DLX 的业务队列清单(order.timeout.queue 除外,其 TTL 死信是业务路由机制) */
+    private static final String[] DLX_QUEUES = {
+            ORDER_CANCEL_QUEUE, ORDER_CREATE_QUEUE, ORDER_ALLOCATE_QUEUE,
+            REFUND_QUEUE, TICKET_GENERATE_QUEUE, INVENTORY_SYNC_QUEUE,
+            NOTIFICATION_QUEUE, SEARCH_SYNC_QUEUE
+    };
+
+    /** 业务队列统一构建:durable + 死信参数。重试耗尽 reject 后路由到 DLX_EXCHANGE → {队列名}.dlq */
+    private static Queue durableWithDlx(String queueName) {
+        return QueueBuilder.durable(queueName)
+                .withArgument("x-dead-letter-exchange", DLX_EXCHANGE)
+                .withArgument("x-dead-letter-routing-key", DLQ_ROUTING_PREFIX + queueName)
+                .build();
+    }
+
     @Bean
     public MessageConverter messageConverter() {
         return new Jackson2JsonMessageConverter();
@@ -67,7 +101,8 @@ public class RabbitMQConfig {
      */
     @Bean
     public RabbitTemplate rabbitTemplate(ConnectionFactory connectionFactory,
-                                         MessageConverter messageConverter) {
+                                         MessageConverter messageConverter,
+                                         MeterRegistry meterRegistry) {
         RabbitTemplate template = new RabbitTemplate(connectionFactory);
         template.setMessageConverter(messageConverter);
         template.setMandatory(true);
@@ -75,16 +110,37 @@ public class RabbitMQConfig {
             if (!ack) {
                 String id = correlationData != null ? correlationData.getId() : "null";
                 log.error("[MQ-CONFIRM] 消息未到达 Exchange, id={}, cause={}", id, cause);
+                meterRegistry.counter("mq.publish.confirm.fail").increment();
             }
         });
-        template.setReturnsCallback(returned -> log.error(
-                "[MQ-RETURN] 路由失败 exchange={} routingKey={} replyCode={} replyText={} body={}",
-                returned.getExchange(),
-                returned.getRoutingKey(),
-                returned.getReplyCode(),
-                returned.getReplyText(),
-                returned.getMessage()));
+        template.setReturnsCallback(returned -> {
+            log.error("[MQ-RETURN] 路由失败 exchange={} routingKey={} replyCode={} replyText={} body={}",
+                    returned.getExchange(),
+                    returned.getRoutingKey(),
+                    returned.getReplyCode(),
+                    returned.getReplyText(),
+                    returned.getMessage());
+            meterRegistry.counter("mq.publish.return",
+                    "exchange", returned.getExchange()).increment();
+        });
         return template;
+    }
+
+    /**
+     * 死信基础设施:统一 DLX + 每个业务队列一个专属 DLQ。
+     * DLQ 由 DeadLetterConsumer 消费:写 ERROR 日志(含完整消息体,供人工补偿重发)+ 指标告警。
+     */
+    @Bean
+    public Declarables deadLetterDeclarables() {
+        DirectExchange dlx = new DirectExchange(DLX_EXCHANGE, true, false);
+        List<Declarable> declarables = new ArrayList<>();
+        declarables.add(dlx);
+        for (String queueName : DLX_QUEUES) {
+            Queue dlq = QueueBuilder.durable(queueName + DLQ_SUFFIX).build();
+            declarables.add(dlq);
+            declarables.add(BindingBuilder.bind(dlq).to(dlx).with(DLQ_ROUTING_PREFIX + queueName));
+        }
+        return new Declarables(declarables);
     }
 
     /** 订单超时投递交换机 */
@@ -109,10 +165,10 @@ public class RabbitMQConfig {
         return QueueBuilder.durable(ORDER_TIMEOUT_QUEUE).withArguments(args).build();
     }
 
-    /** 订单取消队列：消费死信，执行实际取消逻辑 */
+    /** 订单取消队列：消费死信，执行实际取消逻辑；重试耗尽后进自己的 DLQ */
     @Bean
     public Queue orderCancelQueue() {
-        return QueueBuilder.durable(ORDER_CANCEL_QUEUE).build();
+        return durableWithDlx(ORDER_CANCEL_QUEUE);
     }
 
     @Bean
@@ -137,17 +193,17 @@ public class RabbitMQConfig {
 
     @Bean
     public Queue ticketGenerateQueue() {
-        return QueueBuilder.durable(TICKET_GENERATE_QUEUE).build();
+        return durableWithDlx(TICKET_GENERATE_QUEUE);
     }
 
     @Bean
     public Queue inventorySyncQueue() {
-        return QueueBuilder.durable(INVENTORY_SYNC_QUEUE).build();
+        return durableWithDlx(INVENTORY_SYNC_QUEUE);
     }
 
     @Bean
     public Queue notificationQueue() {
-        return QueueBuilder.durable(NOTIFICATION_QUEUE).build();
+        return durableWithDlx(NOTIFICATION_QUEUE);
     }
 
     @Bean
@@ -172,7 +228,7 @@ public class RabbitMQConfig {
 
     @Bean
     public Queue refundQueue() {
-        return QueueBuilder.durable(REFUND_QUEUE).build();
+        return durableWithDlx(REFUND_QUEUE);
     }
 
     @Bean
@@ -189,7 +245,7 @@ public class RabbitMQConfig {
     /** 异步建单队列 */
     @Bean
     public Queue orderCreateQueue() {
-        return QueueBuilder.durable(ORDER_CREATE_QUEUE).build();
+        return durableWithDlx(ORDER_CREATE_QUEUE);
     }
 
     @Bean
@@ -206,7 +262,7 @@ public class RabbitMQConfig {
     /** 派座异步建单队列 */
     @Bean
     public Queue orderAllocateQueue() {
-        return QueueBuilder.durable(ORDER_ALLOCATE_QUEUE).build();
+        return durableWithDlx(ORDER_ALLOCATE_QUEUE);
     }
 
     @Bean
@@ -225,7 +281,7 @@ public class RabbitMQConfig {
     /** 搜索同步队列 */
     @Bean
     public Queue searchSyncQueue() {
-        return QueueBuilder.durable(SEARCH_SYNC_QUEUE).build();
+        return durableWithDlx(SEARCH_SYNC_QUEUE);
     }
 
     /** 绑定:搜索同步队列 ↔ 搜索同步交换机 */

@@ -517,6 +517,20 @@ public class OrderCommandService {
     }
 
     private void doRefund(Order order, List<Long> refundSeatIds) {
+        self.doRefundTransactional(order, refundSeatIds);
+    }
+
+    /**
+     * 退款 DB 写入(状态流转 + 退款金额累加)必须原子:两条 UPDATE 之间崩溃会造成
+     * 状态与金额不一致,且旧的"发 MQ 失败后手动反向 SQL"补偿本身也可能失败。
+     *
+     * <p>MQ 发送放在 afterCommit:发送失败时订单停留在 status=3(退款中),
+     * 由 RefundReconciler 定时扫描卡单重发,无需同步回滚。
+     *
+     * <p>仅供 doRefund 经 self 代理调用,public 只为让 @Transactional 生效。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void doRefundTransactional(Order order, List<Long> refundSeatIds) {
         int affected = orderMapper.updateStatusFrom(order.getId(), order.getStatus(), 3);
         if (affected == 0) {
             return;
@@ -532,23 +546,25 @@ public class OrderCommandService {
             orderMapper.addRefundAmount(order.getId(), refundIncr);
         }
 
-        try {
-            refundProducer.sendRefund(order.getId(), refundSeatIds);
-        } catch (Exception e) {
-            log.error("退款 MQ 发送失败,回滚订单状态,orderId={}", order.getId(), e);
-            orderMapper.updateStatusFrom(order.getId(), 3, order.getStatus());
-            if (refundIncr.compareTo(BigDecimal.ZERO) > 0) {
-                orderMapper.addRefundAmount(order.getId(), refundIncr.negate());
+        Long orderId = order.getId();
+        Long sessionId = order.getSessionId();
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                try {
+                    refundProducer.sendRefund(orderId, refundSeatIds);
+                } catch (Exception e) {
+                    log.error("退款 MQ 发送失败,订单停留在退款中,等待 RefundReconciler 兜底重发,orderId={}",
+                            orderId, e);
+                }
+                try {
+                    releaseSeatsByMode(sessionId, refundSeatIds);
+                } catch (Exception e) {
+                    log.error("退款座位释放失败,等待消费者兜底,orderId={},seatIds={}",
+                            orderId, refundSeatIds, e);
+                }
             }
-            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "退款系统繁忙,请稍后重试");
-        }
-
-        try {
-            releaseSeatsByMode(order.getSessionId(), refundSeatIds);
-        } catch (Exception e) {
-            log.error("退款座位释放失败,等待消费者兜底,orderId={},seatIds={}",
-                    order.getId(), refundSeatIds, e);
-        }
+        });
     }
 
     // ===================== 释放分流 =====================

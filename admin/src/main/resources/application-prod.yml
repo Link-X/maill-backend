@@ -57,6 +57,20 @@ cors:
   # 允许跨域的前端 origin 列表(逗号分隔),生产环境必须显式配置,禁止 *
   allowed-origins: ${CORS_ALLOWED_ORIGINS}
 
+# Actuator + Prometheus:生产必须暴露 /actuator/prometheus,否则监控抓取不到任何指标。
+# 端点只应通过内网访问,不对公网开放
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: when_authorized
+  metrics:
+    tags:
+      application: ticket-admin
+
 logging:
   level:
     root: WARN

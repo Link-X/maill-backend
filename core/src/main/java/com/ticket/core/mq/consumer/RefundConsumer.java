@@ -106,9 +106,12 @@ public class RefundConsumer {
     }
 
     private String buildIdempotentKey(Long orderId, List<Long> refundSeatIds) {
-        // 复制后排序,避免不同顺序的同一批座位被识别为两次退款
-        List<Long> sorted = new java.util.ArrayList<>(refundSeatIds);
-        java.util.Collections.sort(sorted);
-        return "refund:idempotent:" + orderId + ":" + sorted.hashCode();
+        // 复制后排序,避免不同顺序的同一批座位被识别为两次退款。
+        // 直接拼接 seatId 而非 hashCode:32 位哈希存在碰撞可能,碰撞会让合法退款被误判为重复而永久跳过
+        String seatPart = refundSeatIds.stream()
+                .sorted()
+                .map(String::valueOf)
+                .collect(java.util.stream.Collectors.joining(","));
+        return "refund:idempotent:" + orderId + ":" + seatPart;
     }
 }

@@ -5,6 +5,12 @@ spring:
     active: dev
   jackson:
     default-property-inclusion: non_null
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+
+# 优雅停机:收到 SIGTERM 后不再接收新请求,等待在途请求与 MQ 消息处理完成(最长 30s)再退出
+server:
+  shutdown: graceful
 
 mybatis:
   mapper-locations: classpath:mapper/*.xml

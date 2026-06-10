@@ -71,6 +71,20 @@ minio:
   bucket: ${MINIO_BUCKET:image}
   public-endpoint: ${MINIO_PUBLIC_ENDPOINT:${MINIO_ENDPOINT}}
 
+# Actuator + Prometheus:生产必须暴露 /actuator/prometheus,否则监控抓取不到任何指标。
+# 端点只应通过内网访问,不对公网开放
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: when_authorized
+  metrics:
+    tags:
+      application: ticket-user
+
 logging:
   level:
     root: WARN

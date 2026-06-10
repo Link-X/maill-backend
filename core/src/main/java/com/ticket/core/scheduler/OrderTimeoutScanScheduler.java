@@ -3,6 +3,7 @@ package com.ticket.core.scheduler;
 import com.ticket.core.domain.entity.Order;
 import com.ticket.core.mapper.OrderMapper;
 import com.ticket.core.service.OrderCommandService;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -38,11 +39,14 @@ public class OrderTimeoutScanScheduler {
 
     private final OrderMapper orderMapper;
     private final OrderCommandService orderCommandService;
+    private final MeterRegistry meterRegistry;
 
     public OrderTimeoutScanScheduler(OrderMapper orderMapper,
-                                     OrderCommandService orderCommandService) {
+                                     OrderCommandService orderCommandService,
+                                     MeterRegistry meterRegistry) {
         this.orderMapper = orderMapper;
         this.orderCommandService = orderCommandService;
+        this.meterRegistry = meterRegistry;
     }
 
     @Scheduled(cron = "45 * * * * ?")
@@ -60,6 +64,8 @@ public class OrderTimeoutScanScheduler {
         if (overdue.isEmpty()) return;
 
         log.info("[ORDER-TIMEOUT-SCAN] 扫到超时未取消订单 {} 个(MQ 兜底)", overdue.size());
+        // 兜底命中说明 MQ 延迟取消的正常路径失效,该指标持续增长需要告警排查
+        meterRegistry.counter("order.timeout.fallback.hit").increment(overdue.size());
         for (Order order : overdue) {
             try {
                 // cancelByTimeout 内部 cancelWithReason 用 status=0 CAS,与 MQ consumer 并发安全

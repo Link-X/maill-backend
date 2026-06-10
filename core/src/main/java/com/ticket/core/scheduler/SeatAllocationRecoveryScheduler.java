@@ -5,6 +5,7 @@ import com.ticket.core.mapper.SeatAllocationTaskMapper;
 import com.ticket.core.service.OrderCommandService;
 import com.ticket.core.service.PurchaseLimitService;
 import com.ticket.core.service.SeatAllocationService;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -41,15 +42,18 @@ public class SeatAllocationRecoveryScheduler {
     private final SeatAllocationService allocationService;
     private final PurchaseLimitService purchaseLimitService;
     private final OrderCommandService orderCommandService;
+    private final MeterRegistry meterRegistry;
 
     public SeatAllocationRecoveryScheduler(SeatAllocationTaskMapper taskMapper,
                                            SeatAllocationService allocationService,
                                            PurchaseLimitService purchaseLimitService,
-                                           OrderCommandService orderCommandService) {
+                                           OrderCommandService orderCommandService,
+                                           MeterRegistry meterRegistry) {
         this.taskMapper = taskMapper;
         this.allocationService = allocationService;
         this.purchaseLimitService = purchaseLimitService;
         this.orderCommandService = orderCommandService;
+        this.meterRegistry = meterRegistry;
     }
 
     @Scheduled(cron = "30 * * * * ?")
@@ -79,12 +83,14 @@ public class SeatAllocationRecoveryScheduler {
             }
             try {
                 rollbackOne(t);
+                meterRegistry.counter("seat.allocation.recovery.rollback").increment();
                 log.info("[ALLOC-RECOVERY] 回滚成功 orderNo={} sessionId={} areaId={} type={} qty={} hasAllocated={}",
                         t.getOrderNo(), t.getSessionId(), t.getAreaId(),
                         t.getTicketType(), t.getQuantity(),
                         t.getAllocatedSeats() != null && !t.getAllocatedSeats().isEmpty());
             } catch (Exception e) {
-                // 已经 CAS 成 ROLLED_BACK,Redis 回滚失败要靠人工补偿
+                // 已经 CAS 成 ROLLED_BACK,Redis 回滚失败要靠人工补偿 — 该指标 > 0 必须立即告警
+                meterRegistry.counter("seat.allocation.recovery.manual").increment();
                 log.error("[ALLOC-RECOVERY] 回滚失败 orderNo={},需人工补偿", t.getOrderNo(), e);
             }
         }
